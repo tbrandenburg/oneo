@@ -65,7 +65,19 @@ uv run oneo query "How are customers billed?" --show-sources --show-paths
 
 A `Makefile` wraps the common commands (`make up`, `make validate`,
 `make index`, `make retrieve QUERY="..."`, `make query QUERY="..."`,
-`make test`, `make demo`; run `make help` for the full list).
+`make test`, `make demo`, `make publish BUMP=patch|minor|major`; run
+`make help` for the full list).
+
+## Releasing
+
+```bash
+make publish BUMP=patch   # or BUMP=minor / BUMP=major
+```
+
+Requires a clean working tree and the [GitHub CLI](https://cli.github.com/)
+authenticated (`gh auth login`). Runs the test suite, bumps the version via
+`uv version --bump`, builds the package, commits and tags the release, pushes
+both, and creates a GitHub release with auto-generated notes.
 
 ## Demo
 
