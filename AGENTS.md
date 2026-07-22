@@ -2,15 +2,24 @@
 
 ## Purpose
 
-Oneo is a proof of concept that indexes an Open Knowledge Format (OKF)
-repository into Neo4j and uses the resulting graph for hybrid and
-graph-enhanced retrieval. The OKF filesystem is the canonical source of
-truth; Neo4j is a derived index that must be fully reproducible from the
-filesystem at any time. Oneo demonstrates the value of combining
-OKF-aware parsing, explicit document relationships, Neo4j graph
-projection, vector retrieval, full-text retrieval, rank fusion, graph
-expansion, and grounded answer generation into one small, understandable
-pipeline.
+Oneo indexes an Open Knowledge Format (OKF) repository into Neo4j and
+uses the resulting graph for hybrid and graph-enhanced retrieval. The
+OKF filesystem is the canonical source of truth; Neo4j is a derived
+index that must be fully reproducible from the filesystem at any time.
+Oneo combines OKF-aware parsing, explicit document relationships, Neo4j
+graph projection, vector retrieval, full-text retrieval, rank fusion,
+graph expansion, and grounded answer generation into one small,
+understandable pipeline.
+
+> **Direction of travel:** Oneo is moving from a single-corpus tool to a
+> small, serious **multi-corpus** OKF index (several named OKF bundles,
+> each rooted at its own directory, sharing one Neo4j database and scoped
+> by a `corpus` property). See `doc/plan/plan.md` for the authoritative
+> target design. This `AGENTS.md` still describes the current
+> single-corpus code and is reframed to the multi-corpus model only as
+> each implementation step makes those statements true — where this file
+> and the plan disagree on *intent*, the plan wins; where they disagree
+> on *how existing unchanged code behaves*, this file wins.
 
 ## Goals
 
@@ -43,7 +52,9 @@ pipeline.
 - Production authentication, authorization, or high-availability
   deployment.
 - Distributed ingestion, automated retrieval tuning, or multi-tenant
-  indexing.
+  indexing (isolated, access-controlled tenants). Indexing several named
+  OKF corpuses for a single operator is a planned capability, not a
+  non-goal — see `doc/plan/plan.md`.
 - Generic plugin infrastructure or dynamic pipeline composition.
 - Support for arbitrary document schemas beyond OKF.
 
@@ -53,7 +64,7 @@ pipeline.
   deletable and rebuildable without loss of canonical knowledge.
 - Use `uv` as the standard interface for dependency resolution,
   environment management, command execution, locking, and reproducible
-  setup — even as a proof of concept.
+  setup.
 - Use Typer for the CLI; command handlers must be thin and delegate to
   the `Oneo` coordinator, never containing domain logic.
 - Persistence is limited to Neo4j; no secondary database is permitted.
