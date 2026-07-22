@@ -352,7 +352,63 @@ runtime objects.
 
 ---
 
-# 10. Complexity Budget
+# 10. Test and Demo Corpuses
+
+Multi-corpus behavior cannot be demonstrated with the single existing
+`./knowledge` bundle. This milestone therefore defines a small, fixed
+set of OKF corpuses that must be **created as real on-disk content** (not
+generated only inside test `tmp_path` bodies), so the CLI, demo, and
+end-to-end tests all exercise the same reproducible bundles.
+
+Create two committed demo corpuses under a `corpuses/` directory:
+
+```text
+corpuses/
+├── billing/            # repurpose the current ./knowledge billing content
+│   ├── overview.md
+│   └── topics/…
+└── engineering/        # a second, clearly distinct OKF bundle
+    ├── overview.md
+    └── topics/…
+```
+
+Requirements for the demo corpuses:
+
+* `billing` is seeded from the existing `./knowledge` bundle (moved, not
+  duplicated); `./knowledge` as a standalone top-level bundle is removed
+  once `billing` exists, since there is no longer an implicit global
+  root.
+* `engineering` is a genuinely different bundle (different documents,
+  headings, and vocabulary) so cross-corpus leakage is observable in
+  retrieval.
+* Both bundles must pass `oneo validate --strict` (include a non-empty
+  `type` frontmatter field per OKF spec §9).
+* At least one **identical bundle-relative path** (e.g. `overview.md`)
+  must exist in *both* corpuses with **different content**, to prove the
+  composite `(corpus, document_id)` key prevents collisions.
+* At least one intra-corpus Markdown link must exist in each corpus so
+  graph expansion has an edge to traverse; no link may cross a corpus
+  boundary.
+
+A committed `corpuses.toml.example` registers both demo corpuses, and
+the demo script copies it to `corpuses.toml`.
+
+For automated tests, provide **two minimal corpus fixtures** (a handful
+of documents each) via ordinary `pytest` fixtures that write a temporary
+`corpuses.toml` plus their bundle directories under `tmp_path`. These
+test fixtures are separate from the committed demo corpuses and must
+stay tiny; the committed demo corpuses are what the demo script and the
+Step 5 isolation E2E exercise as realistic bundles.
+
+Each implementation step's `### End-to-end validation` runs against the
+committed demo corpuses (or, for isolation tests, the `tmp_path`
+fixtures). The corpus content itself is created in Step 1 (see its
+implementation task) and only extended, never re-invented, by later
+steps.
+
+---
+
+# 11. Complexity Budget
 
 This milestone inherits the complexity budget and review thresholds of
 §13 of the archived plan. The additional production-code target is:
@@ -376,7 +432,7 @@ over-generalized.
 
 ---
 
-# 11. Standard Engineering Checkpoint
+# 12. Standard Engineering Checkpoint
 
 Every step must pass the checkpoint from §15 of the archived plan,
 extended with:
@@ -403,7 +459,7 @@ Corpus isolation: PASS
 
 ---
 
-# 12. Documentation Authority and Sequencing
+# 13. Documentation Authority and Sequencing
 
 `AGENTS.md` describes the code **as it currently exists**; this plan
 describes the code **as it will exist**. While this milestone is in
@@ -443,7 +499,7 @@ behaves*, follow `AGENTS.md`.
 
 ---
 
-# 13. Implementation
+# 14. Implementation
 
 ## Step 1 — Corpus Registry and Configuration
 
@@ -476,7 +532,14 @@ graph or retrieval behavior changes yet.
      root, and whether the root exists.
 
 7. Keep CLI handlers thin; delegate to the registry.
-8. Remove proof-of-concept framing from the Typer app help,
+8. Create the committed demo corpuses defined in §10: seed
+   `corpuses/billing` from the existing `./knowledge` bundle (move it),
+   author a distinct `corpuses/engineering` bundle, add an identical
+   bundle-relative path in both with different content, ensure both pass
+   `oneo validate --strict`, and add a `corpuses.toml.example`
+   registering both. Remove the now-orphaned top-level `./knowledge`
+   bundle.
+9. Remove proof-of-concept framing from the Typer app help,
    `src/oneo/__init__.py`, and `pyproject.toml` description as part of
    this step's surface change (full doc reframing lands in Step 5).
 
@@ -511,10 +574,13 @@ Validate that:
 
 * a missing/empty `corpuses.toml` fails with a clear configuration
   error and non-zero exit code (no `knowledge_root` fallback)
-* with a two-corpus `corpuses.toml`, both are listed with correct roots
+* with the committed two-corpus `corpuses.toml`, both `billing` and
+  `engineering` are listed with correct, existing roots
 * `oneo corpus info <unknown>` fails with a clear error and non-zero
   exit code
 * invalid corpus names and duplicate names are rejected on load
+* both demo corpuses exist on disk and pass `oneo validate --strict`
+* `overview.md` exists in both corpuses with different content
 * no proof-of-concept string remains in `oneo --help`
 * output is deterministic
 
@@ -854,7 +920,8 @@ Required output includes, per corpus:
 Corpus billing: indexed, retrieval PASS, query PASS
 Corpus engineering: indexed, retrieval PASS, query PASS
 Corpus isolation: PASS
-Rebuild-from-filesystem (per corpus): PASSMulti-corpus status: SUCCESS
+Rebuild-from-filesystem (per corpus): PASS
+Multi-corpus status: SUCCESS
 ```
 
 And:
@@ -880,7 +947,7 @@ Corpus isolation: PASS
 
 ---
 
-# 14. Testing Strategy
+# 15. Testing Strategy
 
 The testing pyramid and discipline from §17 of the archived plan hold.
 This milestone adds, without building a generic harness:
@@ -912,14 +979,15 @@ This milestone adds, without building a generic harness:
 
 ## Test scope discipline
 
-Use ordinary `pytest` fixtures, two small corpus fixtures, Docker
-Compose, and the existing deterministic fake embedding/chat providers.
-At least one end-to-end path must exercise two real corpuses with the
-configured embedding and chat integrations.
+Use ordinary `pytest` fixtures, the two minimal `tmp_path` corpus
+fixtures from §10, Docker Compose, and the existing deterministic fake
+embedding/chat providers. At least one end-to-end path must exercise the
+two committed demo corpuses (§10) with the configured embedding and chat
+integrations.
 
 ---
 
-# 15. Pull Request Requirements
+# 16. Pull Request Requirements
 
 Every implementation pull request must include the block from §19 of the
 archived plan, plus:
@@ -937,7 +1005,7 @@ without a documented complexity justification.
 
 ---
 
-# 16. Review Smells
+# 17. Review Smells
 
 In addition to the review smells in §20 of the archived plan,
 reviewers should challenge:
@@ -954,7 +1022,7 @@ reviewers should challenge:
 
 ---
 
-# 17. Operational Model
+# 18. Operational Model
 
 ## Supported commands
 
@@ -988,7 +1056,7 @@ carry over unchanged.
 
 ---
 
-# 18. Breaking Change and Migration
+# 19. Breaking Change and Migration
 
 This milestone is a clean breaking change; there is no compatibility
 mode.
