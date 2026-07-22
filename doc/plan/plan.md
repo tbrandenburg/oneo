@@ -8,40 +8,34 @@
 
 ## 1. Purpose
 
-The first milestone (see
-[`doc/plan/steps/archived/oneo-poc/plan.md`](steps/archived/oneo-poc/plan.md))
-proved that a single Open Knowledge Format (OKF) repository can be
-deterministically projected into Neo4j and used for hybrid,
-graph-enhanced retrieval. Everything in that first milestone assumes
-exactly one corpus: one `knowledge_root`, one global ownership marker,
-one flat set of `OkfDocument`/`OkfSection` nodes, and retrieval that
-searches all indexed sections at once.
+Oneo v1 proved that a single Open Knowledge Format (OKF) repository can
+be deterministically projected into Neo4j and used for hybrid,
+graph-enhanced retrieval. That version assumes exactly one corpus: one
+`knowledge_root`, one global ownership marker, one flat set of
+`OkfDocument`/`OkfSection` nodes, and retrieval over all indexed
+sections at once.
 
-This document defines the plan to turn that proof of concept into a
-small but serious tool — **Oneo v2** — that indexes and serves
-**multiple, isolated knowledge corpuses** from a single Neo4j database,
-while keeping the qualities that made the first milestone valuable:
-simplicity, determinism, filesystem-as-source-of-truth, and a single
-derived datastore.
+This document defines **Oneo v2**: a small but serious tool that indexes
+and serves **multiple, isolated knowledge corpuses** from a single Neo4j
+database, keeping the qualities that made v1 valuable — simplicity,
+determinism, filesystem-as-source-of-truth, and a single derived
+datastore.
 
 A "corpus" is one named OKF bundle rooted at its own directory (for
-example `billing`, `engineering-wiki`, `product-specs`). Multiple
-corpuses coexist in one Neo4j database, are indexed and reset
-independently, and are queried one at a time by name.
+example `billing`, `engineering`, `product-specs`). Multiple corpuses
+coexist in one Neo4j database, are indexed and reset independently, and
+are queried one at a time by name.
 
 **This is a clean breaking change, not an incremental add-on.** Multiple
 corpuses become the *native and only* model: there is no single-corpus
 mode, no implicit global `knowledge_root` pipeline, and no compatibility
-shim for pre-v2 graph data. Misleading proof-of-concept framing is
-removed from the codebase and documentation, and the single-corpus
-assumptions are cut rather than preserved behind a flag. The result is a
-clean, intentional feature set with no legacy surface.
+shim for pre-v2 graph data. The single-corpus assumptions are cut, not
+preserved behind a flag.
 
-The change must remain deliberately small, explicit, and easy to
-understand. It is not an invitation to build a multi-tenant platform:
-multi-corpus (several named bundles a single operator indexes and
-queries) is explicitly distinct from multi-tenant (isolated, access-
-controlled tenants), which remains a non-goal.
+The change must stay deliberately small and explicit. It is not a
+multi-tenant platform: multi-corpus (several named bundles one operator
+indexes and queries) is distinct from multi-tenant (isolated,
+access-controlled tenants), which remains a non-goal.
 
 ---
 
@@ -55,7 +49,7 @@ controlled tenants), which remains a non-goal.
 * Reset a single corpus without disturbing the others.
 * Retrieve, expand, and answer against one explicitly selected corpus.
 * Preserve document/section identities, anchors, links, and provenance
-  per corpus, exactly as in the first milestone.
+  per corpus, exactly as in v1.
 * Preserve full filesystem-first rebuild semantics **per corpus**: any
   single corpus can be deleted from Neo4j and rebuilt from its
   filesystem root alone.
@@ -110,11 +104,11 @@ success criteria.
 
 # 4. Non-Goals
 
-This milestone deliberately excludes, in addition to every non-goal
-already listed in the first-milestone plan and `AGENTS.md` (with the
-`multi-tenant` non-goal explicitly *not* forbidding multiple corpuses —
-multiple named bundles are now native; only tenant isolation and access
-control remain out of scope):
+Beyond the v1 non-goals (general document conversion, a second
+datastore, LLM-based graph extraction, RDF projection, production
+auth/HA, etc.), this milestone also excludes — with `multi-tenant`
+explicitly *not* forbidding multiple corpuses; only tenant isolation and
+access control stay out of scope:
 
 * Cross-corpus / federated retrieval (a single query fanning out over
   several corpuses and merging results). Each retrieval targets exactly
@@ -144,8 +138,7 @@ query it" — simple and the code small.
 
 # 5. Implementation Constraints
 
-Every constraint from the proof-of-concept plan (§5 of the archived
-plan) continues to apply unchanged, in particular:
+Inherited from v1 and still binding:
 
 * Prefer composition and mature libraries over custom infrastructure.
 * Introduce a new abstraction only for a demonstrated present need.
@@ -187,11 +180,12 @@ Additional constraints specific to this milestone:
   requires an explicit corpus selection (a configured default corpus
   name is acceptable, but the pipeline must always resolve to a named
   corpus — never to an unnamed global root).
-
-A pull request that adds more than ~300 production LOC, a new runtime
-dependency, a new persistence mechanism, a per-corpus index, or a new
-public abstraction must include the standard complexity justification
-block from §13 of the archived plan.
+* `AGENTS.md` is reframed only in Step 5, after Steps 1–4 make its new
+  statements true; earlier steps may only strip "proof of concept"
+  wording from non-behavioral surfaces (Typer help, `__init__.py`,
+  `pyproject.toml`). Until then, `AGENTS.md` remains authoritative for
+  the behavior of code not yet changed; this plan is authoritative for
+  scope and intent.
 
 ---
 
@@ -255,7 +249,7 @@ disposable and reproducible, now independently per corpus.
 
 # 7. Data Ownership and Rebuild Semantics
 
-Ownership rules from §7 of the archived plan hold **per corpus**:
+Data ownership holds **per corpus**:
 
 * Each corpus's filesystem root owns that corpus's content,
   identifiers, titles, metadata, headings, anchors, links, and source
@@ -410,8 +404,7 @@ steps.
 
 # 11. Complexity Budget
 
-This milestone inherits the complexity budget and review thresholds of
-§13 of the archived plan. The additional production-code target is:
+The additional production-code target for this milestone is:
 
 > **Approximately 600–1,000 lines of new production code total**
 
@@ -432,11 +425,13 @@ over-generalized.
 
 ---
 
-# 12. Standard Engineering Checkpoint
+# 12. Engineering Checkpoint
 
-Every step must pass the checkpoint from §15 of the archived plan,
-extended with:
+Every step must verify:
 
+* No generic infrastructure was introduced without a demonstrated need;
+  the public API stayed minimal; the filesystem stayed canonical; Neo4j
+  stayed the only derived datastore; no prior E2E behavior regressed.
 * Corpus is a parameter, not a new coordinator method or a service
   locator.
 * No per-corpus index, database, or datastore was introduced.
@@ -459,47 +454,7 @@ Corpus isolation: PASS
 
 ---
 
-# 13. Documentation Authority and Sequencing
-
-`AGENTS.md` describes the code **as it currently exists**; this plan
-describes the code **as it will exist**. While this milestone is in
-progress the two will temporarily disagree, so precedence must be
-explicit:
-
-* **For scope, intent, and target design, this plan
-  (`doc/plan/plan.md`) is authoritative.** Where `AGENTS.md` still says
-  "proof of concept", lists "multi-tenant indexing" as a non-goal, or
-  states an un-scoped `Document ID = bundle-relative file path`, that
-  reflects the *pre-v2 code*, not the goal. An agent must not conclude
-  from `AGENTS.md` that multiple corpuses are out of scope.
-* **For the behavior of code that has not yet been changed,
-  `AGENTS.md` remains authoritative.** Its `knowledge_root` /
-  `resolve_within_root` / `discover_files` pitfalls (single-root
-  double-join, root-relative resolution, etc.) accurately describe the
-  modules this milestone leaves unchanged until the step that touches
-  them. Do not treat those pitfalls as obsolete before the relevant
-  step.
-* **`AGENTS.md` is reframed last, in Step 5, on purpose.** It must not
-  be rewritten to describe corpus scoping, composite keys, or the
-  removed `knowledge_root` until Steps 1–4 have actually made those
-  statements true — otherwise agents implementing earlier steps would
-  read guidance describing code that does not exist yet. The only early
-  documentation change permitted is removing "proof of concept" wording
-  from surfaces that carry no behavioral claim (`pyproject.toml`
-  description, `__init__.py` docstring, Typer app help), done in Step 1.
-* Per the repository's own convention, `AGENTS.md` is edited only when a
-  step's work makes a change true, and its "Key Pitfalls" section is
-  append-only and corrected surgically — never pre-emptively rewritten
-  to match a not-yet-implemented design.
-
-If this plan and `AGENTS.md` conflict on *intent*, follow the plan and
-flag the `AGENTS.md` line for correction in the step that makes the
-underlying code change. If they conflict on *how existing unchanged code
-behaves*, follow `AGENTS.md`.
-
----
-
-# 14. Implementation
+# 13. Implementation
 
 ## Step 1 — Corpus Registry and Configuration
 
@@ -947,9 +902,8 @@ Corpus isolation: PASS
 
 ---
 
-# 15. Testing Strategy
+# 14. Testing Strategy
 
-The testing pyramid and discipline from §17 of the archived plan hold.
 This milestone adds, without building a generic harness:
 
 ## Unit tests
@@ -987,28 +941,30 @@ integrations.
 
 ---
 
-# 16. Pull Request Requirements
+# 15. Pull Request Requirements
 
-Every implementation pull request must include the block from §19 of the
-archived plan, plus:
+Every implementation pull request must state:
 
 ```text
+Reuse decision / reason custom code is required:
+Production LOC added / public API changes / new dependencies:
 Corpus dimension threaded through: <components>
 Isolation proof: <how corpus A/B non-interference is demonstrated>
 Removed single-corpus surface: <knowledge_root / PoC framing removed>
+E2E validation:
 ```
 
-A pull request must not introduce a second datastore, a per-corpus
-index, a corpus-source plugin system, cross-corpus retrieval, an
-implicit global single-corpus path, or any new coordinator method
-without a documented complexity justification.
+A pull request that adds more than ~300 production LOC, a new runtime
+dependency, a new persistence mechanism, a per-corpus index, cross-corpus
+retrieval, an implicit global single-corpus path, or a new public
+abstraction (including any new coordinator method) must include a written
+complexity justification.
 
 ---
 
-# 17. Review Smells
+# 16. Review Smells
 
-In addition to the review smells in §20 of the archived plan,
-reviewers should challenge:
+Reviewers should challenge:
 
 * a per-corpus Neo4j database, schema, or index
 * a corpus registry that holds connections or indexing state
@@ -1022,7 +978,7 @@ reviewers should challenge:
 
 ---
 
-# 18. Operational Model
+# 17. Operational Model
 
 ## Supported commands
 
@@ -1056,7 +1012,7 @@ carry over unchanged.
 
 ---
 
-# 19. Breaking Change and Migration
+# 18. Breaking Change and Migration
 
 This milestone is a clean breaking change; there is no compatibility
 mode.
