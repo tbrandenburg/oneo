@@ -1,0 +1,34 @@
+[project]
+name = "oneo"
+version = "0.1.0"
+description = "OKF-to-Neo4j graph retrieval proof of concept"
+readme = "README.md"
+authors = [
+    { name = "Tom Brandenburg (XC/ESX1-SE)", email = "tom.brandenburg@se.bosch.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "markdown-it-py>=4.0.0",
+    "neo4j>=5.0",
+    "pydantic-settings>=2.14.2",
+    "python-dotenv>=1.2.2",
+    "python-frontmatter>=1.1.0",
+    "sentence-transformers>=5.1.2",
+    "typer>=0.27.0",
+]
+
+[project.scripts]
+oneo = "oneo:main"
+
+[build-system]
+requires = ["uv_build>=0.11.4,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

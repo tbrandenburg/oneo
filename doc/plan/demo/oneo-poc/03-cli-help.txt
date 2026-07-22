@@ -1,0 +1,30 @@
+                                                                                
+ Usage: oneo [OPTIONS] COMMAND [ARGS]...                                        
+                                                                                
+ Oneo: OKF-to-Neo4j graph retrieval proof of concept.                           
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --install-completion          Install completion for the current shell.      │
+│ --show-completion             Show completion for the current shell, to copy │
+│                               it or customize the installation.              │
+│ --help                        Show this message and exit.                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ health         Check connectivity to the configured Neo4j database.          │
+│ files          List supported OKF source files under INPUT_PATH.             │
+│ parse          Parse OKF documents under INPUT_PATH into a normalized corpus │
+│                JSON file.                                                    │
+│ validate       Validate the OKF corpus under INPUT_PATH without writing to   │
+│                Neo4j.                                                        │
+│ index          Index the OKF corpus under INPUT_PATH into Neo4j.             │
+│ vector-search  Run a raw vector-similarity search over indexed OKF sections. │
+│ retrieve       Run hybrid retrieval (vector + full-text with rank fusion),   │
+│                optionally                                                    │
+│                followed by one-hop graph expansion.                          │
+│ query          Generate a grounded answer with citations from hybrid         │
+│                (optionally                                                   │
+│                graph-expanded) retrieval.                                    │
+│ reset          Delete only the Neo4j data owned by this index.               │
+│ verify         Compare the filesystem corpus against the graph index.        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+

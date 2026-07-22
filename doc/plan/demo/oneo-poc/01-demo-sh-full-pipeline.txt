@@ -1,0 +1,45 @@
+== Starting Neo4j ==
+ Network oneo_default  Creating
+ Network oneo_default  Created
+ Volume oneo_oneo-neo4j-data  Creating
+ Volume oneo_oneo-neo4j-data  Created
+ Container oneo-neo4j  Creating
+ Container oneo-neo4j  Created
+ Container oneo-neo4j  Starting
+ Container oneo-neo4j  Started
+== Waiting for Neo4j readiness ==
+== Health check ==
+connected to database 'neo4j' (server: Neo4j/5.26.28)
+== Filesystem security ==
+Filesystem security: PASS
+== OKF validation ==
+0 diagnostic(s)
+OKF validation: PASS
+== Resetting derived index ==
+reset complete
+== Indexing (schema, documents, sections, links, embeddings) ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights:  92%|█████████▏| 95/103 [00:00<00:00, 949.26it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1021.11it/s]
+indexed 6 document(s), 6 section(s), 2 link(s)
+Graph projection: PASS
+Vector index: ONLINE
+Full-text index: ONLINE
+== Hybrid retrieval ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights:  90%|█████████ | 93/103 [00:00<00:00, 923.69it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 993.09it/s]
+Hybrid retrieval: PASS
+== Graph expansion ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights:  83%|████████▎ | 86/103 [00:00<00:00, 856.81it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 936.38it/s]
+Graph expansion: PASS
+== Grounded answer generation ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1132.81it/s]
+== Verifying citations ==
+Answer grounding: PASS
+
+Filesystem security: PASS
+OKF validation: PASS
+Graph projection: PASS
+Vector index: ONLINE
+Full-text index: ONLINE
+Hybrid retrieval: PASS
+Graph expansion: PASS
+Answer grounding: PASS
+PoC status: SUCCESS

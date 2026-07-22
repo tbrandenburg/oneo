@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+.env
+build/
+
+# User
+/factory_v2.sh
+.factory/factory_v2.sh
+oneo-implementation-plan.md
+oneo.zip
