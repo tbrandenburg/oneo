@@ -17,6 +17,7 @@ NEO4J_URI = "bolt://localhost:7687"
 NEO4J_USERNAME = "neo4j"
 NEO4J_PASSWORD = "password"
 NEO4J_DATABASE = "neo4j"
+CORPUS = "test-corpus"
 
 
 def _neo4j_available() -> bool:
@@ -46,10 +47,10 @@ def store():
         password=NEO4J_PASSWORD,
         database=NEO4J_DATABASE,
     ) as opened:
-        opened.reset()
+        opened.reset(CORPUS)
         opened.apply_schema()
         yield opened
-        opened.reset()
+        opened.reset(CORPUS)
 
 
 def test_health_reports_connected():
@@ -139,51 +140,51 @@ def _sample_links():
 
 
 def test_write_documents_sections_links_are_queryable(store):
-    store.write_documents(_sample_documents())
-    store.write_sections(_sample_sections())
-    store.write_links(_sample_links())
+    store.write_documents(_sample_documents(), CORPUS)
+    store.write_sections(_sample_sections(), CORPUS)
+    store.write_links(_sample_links(), CORPUS)
 
-    documents = store.list_documents()
+    documents = store.list_documents(CORPUS)
     assert sorted(d.document_id for d in documents) == ["overview", "topics/example"]
-    assert store.count_sections() == 2
-    assert store.count_links() == 1
+    assert store.count_sections(CORPUS) == 2
+    assert store.count_links(CORPUS) == 1
 
 
 def test_repeated_writes_create_no_duplicates(store):
     for _ in range(2):
-        store.write_documents(_sample_documents())
-        store.write_sections(_sample_sections())
-        store.write_links(_sample_links())
+        store.write_documents(_sample_documents(), CORPUS)
+        store.write_sections(_sample_sections(), CORPUS)
+        store.write_links(_sample_links(), CORPUS)
 
-    assert len(store.list_documents()) == 2
-    assert store.count_sections() == 2
-    assert store.count_links() == 1
+    assert len(store.list_documents(CORPUS)) == 2
+    assert store.count_sections(CORPUS) == 2
+    assert store.count_links(CORPUS) == 1
 
 
 def test_reset_removes_only_owned_data(store):
-    store.write_documents(_sample_documents())
+    store.write_documents(_sample_documents(), CORPUS)
     store._run("CREATE (:Unrelated {name: 'keep-me'})")
 
-    store.reset()
+    store.reset(CORPUS)
 
-    assert store.list_documents() == []
+    assert store.list_documents(CORPUS) == []
     remaining = store._run("MATCH (n:Unrelated) RETURN count(n) AS n")
     assert remaining[0]["n"] == 1
     store._run("MATCH (n:Unrelated) DETACH DELETE n")
 
 
 def test_export_graph_is_identical_after_rebuild(store):
-    store.write_documents(_sample_documents())
-    store.write_sections(_sample_sections())
-    store.write_links(_sample_links())
-    first_export = store.export_graph()
+    store.write_documents(_sample_documents(), CORPUS)
+    store.write_sections(_sample_sections(), CORPUS)
+    store.write_links(_sample_links(), CORPUS)
+    first_export = store.export_graph(CORPUS)
 
-    store.reset()
+    store.reset(CORPUS)
     store.apply_schema()
-    store.write_documents(_sample_documents())
-    store.write_sections(_sample_sections())
-    store.write_links(_sample_links())
-    second_export = store.export_graph()
+    store.write_documents(_sample_documents(), CORPUS)
+    store.write_sections(_sample_sections(), CORPUS)
+    store.write_links(_sample_links(), CORPUS)
+    second_export = store.export_graph(CORPUS)
 
     assert first_export == second_export
 
@@ -194,12 +195,12 @@ def test_anchor_less_link_read_emits_no_driver_warning(store, caplog):
     Neo4j "property key does not exist" driver warning when the
     property is later read, and reads must still return ``None``."""
 
-    store.write_documents(_sample_documents())
-    store.write_sections(_sample_sections())
-    store.write_links(_sample_links())
+    store.write_documents(_sample_documents(), CORPUS)
+    store.write_sections(_sample_sections(), CORPUS)
+    store.write_links(_sample_links(), CORPUS)
 
     with caplog.at_level(logging.WARNING, logger="neo4j.notifications"):
-        export = store.export_graph()
+        export = store.export_graph(CORPUS)
 
     assert not any(
         "target_anchor" in record.message for record in caplog.records
@@ -225,8 +226,8 @@ def test_sections_needing_embedding_emits_no_driver_warning_on_fresh_db(
     "property key does not exist" driver warning, and all sections must
     still be correctly reported as needing embedding."""
 
-    store.write_documents(_sample_documents())
-    store.write_sections(_sample_sections())
+    store.write_documents(_sample_documents(), CORPUS)
+    store.write_sections(_sample_sections(), CORPUS)
 
     section_ids = [section.section_id for section in _sample_sections()]
     input_hashes = {section_id: "hash-value" for section_id in section_ids}
@@ -236,6 +237,7 @@ def test_sections_needing_embedding_emits_no_driver_warning_on_fresh_db(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
             dimensions=384,
             input_hashes=input_hashes,
+            corpus=CORPUS,
         )
 
     assert not any(
@@ -246,8 +248,8 @@ def test_sections_needing_embedding_emits_no_driver_warning_on_fresh_db(
 
 
 def test_fulltext_search_returns_matching_owned_sections(store):
-    store.write_documents(_sample_documents())
-    store.write_sections(_sample_sections())
+    store.write_documents(_sample_documents(), CORPUS)
+    store.write_sections(_sample_sections(), CORPUS)
     store.wait_for_fulltext_index_online()
 
     matches = store.fulltext_search("billing", top_k=5)
@@ -259,8 +261,8 @@ def test_fulltext_search_returns_matching_owned_sections(store):
 
 
 def test_fulltext_search_ignores_unrelated_data(store):
-    store.write_documents(_sample_documents())
-    store.write_sections(_sample_sections())
+    store.write_documents(_sample_documents(), CORPUS)
+    store.write_sections(_sample_sections(), CORPUS)
     store.wait_for_fulltext_index_online()
 
     matches = store.fulltext_search("nested placeholder", top_k=5)
@@ -351,8 +353,8 @@ def _expansion_sample_sections():
 
 
 def test_expand_neighbors_returns_outgoing_edge(store):
-    store.write_documents(_expansion_sample_documents())
-    store.write_sections(_expansion_sample_sections())
+    store.write_documents(_expansion_sample_documents(), CORPUS)
+    store.write_sections(_expansion_sample_sections(), CORPUS)
     store.write_links(
         [
             OkfLink(
@@ -363,7 +365,8 @@ def test_expand_neighbors_returns_outgoing_edge(store):
                 target_anchor="charging",
                 is_external=False,
             )
-        ]
+        ],
+        CORPUS,
     )
 
     edges = store.expand_neighbors(["billing"])
@@ -377,8 +380,8 @@ def test_expand_neighbors_returns_outgoing_edge(store):
 
 
 def test_expand_neighbors_returns_incoming_edge(store):
-    store.write_documents(_expansion_sample_documents())
-    store.write_sections(_expansion_sample_sections())
+    store.write_documents(_expansion_sample_documents(), CORPUS)
+    store.write_sections(_expansion_sample_sections(), CORPUS)
     store.write_links(
         [
             OkfLink(
@@ -389,7 +392,8 @@ def test_expand_neighbors_returns_incoming_edge(store):
                 target_anchor=None,
                 is_external=False,
             )
-        ]
+        ],
+        CORPUS,
     )
 
     edges = store.expand_neighbors(["payments"])
@@ -400,8 +404,8 @@ def test_expand_neighbors_returns_incoming_edge(store):
 
 
 def test_expand_neighbors_excludes_edges_between_seed_documents(store):
-    store.write_documents(_expansion_sample_documents())
-    store.write_sections(_expansion_sample_sections())
+    store.write_documents(_expansion_sample_documents(), CORPUS)
+    store.write_sections(_expansion_sample_sections(), CORPUS)
     store.write_links(
         [
             OkfLink(
@@ -412,7 +416,8 @@ def test_expand_neighbors_excludes_edges_between_seed_documents(store):
                 target_anchor=None,
                 is_external=False,
             )
-        ]
+        ],
+        CORPUS,
     )
 
     edges = store.expand_neighbors(["billing", "payments"])
@@ -428,8 +433,8 @@ def test_expand_neighbors_rejects_hops_other_than_one(store):
 
 
 def test_section_by_anchor_returns_matching_section(store):
-    store.write_documents(_expansion_sample_documents())
-    store.write_sections(_expansion_sample_sections())
+    store.write_documents(_expansion_sample_documents(), CORPUS)
+    store.write_sections(_expansion_sample_sections(), CORPUS)
 
     match = store.section_by_anchor("payments", "receipts")
 
@@ -438,15 +443,15 @@ def test_section_by_anchor_returns_matching_section(store):
 
 
 def test_section_by_anchor_returns_none_when_missing(store):
-    store.write_documents(_expansion_sample_documents())
-    store.write_sections(_expansion_sample_sections())
+    store.write_documents(_expansion_sample_documents(), CORPUS)
+    store.write_sections(_expansion_sample_sections(), CORPUS)
 
     assert store.section_by_anchor("payments", "does-not-exist") is None
 
 
 def test_first_section_returns_lowest_ordinal(store):
-    store.write_documents(_expansion_sample_documents())
-    store.write_sections(_expansion_sample_sections())
+    store.write_documents(_expansion_sample_documents(), CORPUS)
+    store.write_sections(_expansion_sample_sections(), CORPUS)
 
     match = store.first_section("payments")
 
@@ -455,8 +460,8 @@ def test_first_section_returns_lowest_ordinal(store):
 
 
 def test_best_section_in_document_prefers_lexical_match_in_target_document(store):
-    store.write_documents(_expansion_sample_documents())
-    store.write_sections(_expansion_sample_sections())
+    store.write_documents(_expansion_sample_documents(), CORPUS)
+    store.write_sections(_expansion_sample_sections(), CORPUS)
     store.wait_for_fulltext_index_online()
 
     match = store.best_section_in_document("payments", [0.1] * 384, "receipt issued")
@@ -466,8 +471,8 @@ def test_best_section_in_document_prefers_lexical_match_in_target_document(store
 
 
 def test_best_section_in_document_returns_none_when_no_match_in_document(store):
-    store.write_documents(_expansion_sample_documents())
-    store.write_sections(_expansion_sample_sections())
+    store.write_documents(_expansion_sample_documents(), CORPUS)
+    store.write_sections(_expansion_sample_sections(), CORPUS)
     store.wait_for_fulltext_index_online()
 
     match = store.best_section_in_document(
@@ -484,8 +489,8 @@ def test_vector_search_returns_empty_when_index_does_not_exist(store):
     ``Neo.ClientError.Procedure.ProcedureCallFailed`` ("no such vector
     schema index") handling added in Step 01002."""
 
-    store.write_documents(_sample_documents())
-    store.write_sections(_sample_sections())
+    store.write_documents(_sample_documents(), CORPUS)
+    store.write_sections(_sample_sections(), CORPUS)
 
     matches = store.vector_search([0.1] * 384, top_k=5)
 
@@ -560,8 +565,8 @@ def test_wait_for_vector_index_queryable_tolerates_ranking_ties(store):
     sections, vectors_by_id = _tie_tolerance_sections(tied_vector, noise_vector)
     sample_section_id = "tie-tolerance::tied-0::0"
 
-    store.write_documents(_tie_tolerance_documents())
-    store.write_sections(sections)
+    store.write_documents(_tie_tolerance_documents(), CORPUS)
+    store.write_sections(sections, CORPUS)
     store.create_vector_index(dimensions=len(tied_vector))
     store.wait_for_vector_index_online()
     store.write_embeddings(
@@ -574,7 +579,8 @@ def test_wait_for_vector_index_queryable_tolerates_ranking_ties(store):
                 "embedding_input_hash": f"hash-{section_id}",
             }
             for section_id, vector in vectors_by_id.items()
-        ]
+        ],
+        CORPUS,
     )
 
     is_queryable = store.wait_for_vector_index_queryable(

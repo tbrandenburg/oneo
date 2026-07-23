@@ -330,7 +330,7 @@ def test_reset_removes_only_owned_data(tmp_path):
         password=NEO4J_PASSWORD,
         database=NEO4J_DATABASE,
     ) as store:
-        assert store.list_documents() == []
+        assert store.list_documents("test") == []
 
 
 

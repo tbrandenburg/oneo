@@ -90,7 +90,7 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         assert summary.sections == 2
 
         with _make_store() as store:
-            baseline_export = store.export_graph()
+            baseline_export = store.export_graph("test")
             baseline_hashes = _section_embedding_hashes(store)
             store._run(
                 "MERGE (m:UnrelatedMarker {id: $id}) SET m.note = 'not owned by oneo'",
@@ -115,9 +115,9 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         coordinator.index(str(root), rebuild=True, embeddings=True)
 
         with _make_store() as store:
-            edited_export = store.export_graph()
+            edited_export = store.export_graph("test")
             edited_hashes = _section_embedding_hashes(store)
-            edited_texts = store.get_section_texts([overview_section_id])
+            edited_texts = store.get_section_texts([overview_section_id], "test")
 
         edited_document = next(
             d for d in edited_export["documents"] if d["document_id"] == "overview"
@@ -150,7 +150,7 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         coordinator.index(str(root), rebuild=True, embeddings=True)
 
         with _make_store() as store:
-            linked_export = store.export_graph()
+            linked_export = store.export_graph("test")
 
         assert len(linked_export["links"]) == 1
         link = linked_export["links"][0]
@@ -163,7 +163,7 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         coordinator.index(str(root), rebuild=True, embeddings=True)
 
         with _make_store() as store:
-            final_export = store.export_graph()
+            final_export = store.export_graph("test")
             final_texts = store._run(
                 "MATCH (s:OkfSection) RETURN s.document_id AS document_id"
             )

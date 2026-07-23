@@ -199,7 +199,8 @@ class Oneo:
         embedding generation entirely.
         """
 
-        documents = self.parse(input_path, corpus=corpus)
+        corpus_name = self._resolve_corpus_name(corpus)
+        documents = self.parse(input_path, corpus=corpus_name)
         resolved_links = resolve_links(documents)
         all_sections = [
             section for parsed in documents for section in parsed.sections
@@ -207,16 +208,18 @@ class Oneo:
 
         with self._graph_store() as store:
             if rebuild:
-                store.reset()
+                store.reset(corpus_name)
             store.apply_schema()
-            store.write_documents([parsed.document for parsed in documents])
-            store.write_sections(all_sections)
-            store.write_links(resolved_links)
+            store.write_documents(
+                [parsed.document for parsed in documents], corpus_name
+            )
+            store.write_sections(all_sections, corpus_name)
+            store.write_links(resolved_links, corpus_name)
             store.wait_for_fulltext_index_online()
             self._wait_for_fulltext_queryable(store, all_sections)
 
             if embeddings:
-                self._generate_embeddings(store, documents)
+                self._generate_embeddings(store, documents, corpus_name)
 
         return IndexSummary(
             documents=len(documents),
@@ -248,7 +251,7 @@ class Oneo:
             return
 
     def _generate_embeddings(
-        self, store: Neo4jStore, documents: list[ParsedDocument]
+        self, store: Neo4jStore, documents: list[ParsedDocument], corpus: str
     ) -> None:
         """Re-embed every stale or missing section and (re-)create the
         vector index. Raises on any embedding batch failure, reporting
@@ -276,6 +279,7 @@ class Oneo:
             model_name=embedder.MODEL_NAME,
             dimensions=embedder.DIMENSIONS,
             input_hashes=input_hashes,
+            corpus=corpus,
         )
 
         sample_row: dict[str, Any] | None = None
@@ -302,7 +306,7 @@ class Oneo:
                 }
                 for section_id, vector in zip(batch_ids, batch_vectors)
             ]
-            store.write_embeddings(rows)
+            store.write_embeddings(rows, corpus)
             if rows:
                 sample_row = rows[-1]
 
@@ -330,7 +334,8 @@ class Oneo:
         the graph index and report any discrepancy.
         """
 
-        documents = self.parse(input_path, corpus=corpus)
+        corpus_name = self._resolve_corpus_name(corpus)
+        documents = self.parse(input_path, corpus=corpus_name)
         resolved_links = resolve_links(documents)
 
         fs_document_ids = sorted(parsed.document.document_id for parsed in documents)
@@ -338,9 +343,9 @@ class Oneo:
         fs_link_count = len(resolved_links)
 
         with self._graph_store() as store:
-            graph_documents = store.list_documents()
-            graph_section_count = store.count_sections()
-            graph_link_count = store.count_links()
+            graph_documents = store.list_documents(corpus_name)
+            graph_section_count = store.count_sections(corpus_name)
+            graph_link_count = store.count_links(corpus_name)
 
         graph_document_ids = sorted(document.document_id for document in graph_documents)
 
@@ -498,17 +503,20 @@ class Oneo:
         explicit insufficient-evidence result is returned.
 
         ``corpus`` is resolved against the registry (falling back to
-        its configured default) but not yet used to filter results --
-        corpus-scoped search filters land in Step 4.
+        its configured default) but not yet used to filter retrieval
+        (``retrieve``) results -- corpus-scoped search filters land in
+        Step 4. It is used to scope the ``get_section_texts`` lookup
+        below, since that store method is corpus-scoped as of Step 3.
         """
 
-        retrieval = self.retrieve(query, top_k=top_k, expand=expand, corpus=corpus)
+        corpus_name = self._resolve_corpus_name(corpus)
+        retrieval = self.retrieve(query, top_k=top_k, expand=expand, corpus=corpus_name)
 
         section_ids = [hit.section_id for hit in retrieval.hits] + [
             hit.section_id for hit in retrieval.expanded_hits
         ]
         with self._graph_store() as store:
-            section_texts = store.get_section_texts(section_ids)
+            section_texts = store.get_section_texts(section_ids, corpus_name)
 
         return generate_answer(
             query,
@@ -520,13 +528,13 @@ class Oneo:
         )
 
     def reset(self, corpus: str | None = None) -> None:
-        """Delete only the Neo4j data owned by this index.
+        """Delete only the Neo4j data owned by this index and scoped
+        to the selected corpus.
 
         ``corpus`` is resolved against the registry (falling back to
-        its configured default) but not yet used to scope the delete
-        to a single corpus -- corpus-scoped reset lands in Step 3.
+        its configured default).
         """
 
-        self._resolve_corpus_name(corpus)
+        corpus_name = self._resolve_corpus_name(corpus)
         with self._graph_store() as store:
-            store.reset()
+            store.reset(corpus_name)
