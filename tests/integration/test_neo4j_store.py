@@ -173,6 +173,15 @@ def test_reset_removes_only_owned_data(store):
     store._run("MATCH (n:Unrelated) DETACH DELETE n")
 
 
+def test_reset_with_empty_corpus_raises_and_deletes_nothing(store):
+    store.write_documents(_sample_documents(), CORPUS)
+
+    with pytest.raises(ValueError, match="corpus is required"):
+        store.reset("")
+
+    assert len(store.list_documents(CORPUS)) == 2
+
+
 def test_export_graph_is_identical_after_rebuild(store):
     store.write_documents(_sample_documents(), CORPUS)
     store.write_sections(_sample_sections(), CORPUS)
