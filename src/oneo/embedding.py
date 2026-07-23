@@ -1,8 +1,7 @@
 """Deterministic section embedding for Oneo.
 
 The embedding model, its dimensionality, and its batch size are fixed
-for the proof of concept and must not be made configurable (see
-``doc/plan/steps/in-progress/00500-add-embeddings.md``). Only the
+and must not be made configurable, per corpus or otherwise. Only the
 narrow ``SectionEmbedder`` surface required by the pipeline is
 defined here; no embedding-provider registry or selection mechanism
 is introduced.

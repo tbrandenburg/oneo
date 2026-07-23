@@ -17,7 +17,7 @@ def test_document_id_strips_markdown_suffix(tmp_path):
         "---\ntitle: Users\n---\n\n# Users\n\nUser table.\n",
     )
 
-    loader = OkfLoader(knowledge_root=str(tmp_path))
+    loader = OkfLoader(corpus_root=str(tmp_path))
     parsed = loader.load("tables/users.md")
 
     assert parsed.document.document_id == "tables/users"
@@ -31,7 +31,7 @@ def test_frontmatter_and_title_are_preserved(tmp_path):
         "---\ntitle: My Doc\nowner: team-a\n---\n\n# My Doc\n\nBody.\n",
     )
 
-    loader = OkfLoader(knowledge_root=str(tmp_path))
+    loader = OkfLoader(corpus_root=str(tmp_path))
     parsed = loader.load("doc.md")
 
     assert parsed.document.title == "My Doc"
@@ -41,7 +41,7 @@ def test_frontmatter_and_title_are_preserved(tmp_path):
 def test_title_falls_back_to_first_heading_when_missing(tmp_path):
     _write(tmp_path, "doc.md", "---\nowner: team-a\n---\n\n# Heading Title\n\nBody.\n")
 
-    loader = OkfLoader(knowledge_root=str(tmp_path))
+    loader = OkfLoader(corpus_root=str(tmp_path))
     parsed = loader.load("doc.md")
 
     assert parsed.document.title == "Heading Title"
@@ -78,7 +78,7 @@ def test_section_line_matches_real_file_position_with_multiline_frontmatter(
         lines.index("Intro paragraph before any heading.") + 1
     )
 
-    loader = OkfLoader(knowledge_root=str(tmp_path))
+    loader = OkfLoader(corpus_root=str(tmp_path))
     parsed = loader.load("doc.md")
 
     sections_by_heading = {section.heading: section for section in parsed.sections}
@@ -102,7 +102,7 @@ def test_heading_hierarchy_and_anchors(tmp_path):
         "## Section B\n\nText B.\n",
     )
 
-    loader = OkfLoader(knowledge_root=str(tmp_path))
+    loader = OkfLoader(corpus_root=str(tmp_path))
     parsed = loader.load("doc.md")
 
     headings = [(s.heading, s.heading_path, s.anchor) for s in parsed.sections]
@@ -122,7 +122,7 @@ def test_duplicate_headings_get_deduplicated_anchors(tmp_path):
         "## Notes\n\nFirst.\n\n## Notes\n\nSecond.\n",
     )
 
-    loader = OkfLoader(knowledge_root=str(tmp_path))
+    loader = OkfLoader(corpus_root=str(tmp_path))
     parsed = loader.load("doc.md")
 
     anchors = [s.anchor for s in parsed.sections if s.heading == "Notes"]
@@ -136,7 +136,7 @@ def test_section_ordinals_are_deterministic_sequence(tmp_path):
         "---\ntitle: Doc\n---\n\n# Doc\n\nIntro.\n\n## A\n\nX.\n\n## B\n\nY.\n",
     )
 
-    loader = OkfLoader(knowledge_root=str(tmp_path))
+    loader = OkfLoader(corpus_root=str(tmp_path))
     parsed = loader.load("doc.md")
 
     assert [s.ordinal for s in parsed.sections] == [0, 1, 2]
@@ -156,7 +156,7 @@ def test_local_and_external_links_are_distinguished(tmp_path):
         "[external](https://example.com/page).\n",
     )
 
-    loader = OkfLoader(knowledge_root=str(tmp_path))
+    loader = OkfLoader(corpus_root=str(tmp_path))
     parsed = loader.load("doc.md")
 
     assert len(parsed.links) == 2
@@ -176,7 +176,7 @@ def test_source_paths_are_retained_on_every_section(tmp_path):
         "---\ntitle: Doc\n---\n\n# Doc\n\nBody.\n",
     )
 
-    loader = OkfLoader(knowledge_root=str(tmp_path))
+    loader = OkfLoader(corpus_root=str(tmp_path))
     parsed = loader.load("topics/doc.md")
 
     assert all(s.source_path == "topics/doc.md" for s in parsed.sections)
@@ -187,7 +187,7 @@ def test_section_id_unchanged_after_text_edit_but_content_hash_changes(tmp_path)
     path = tmp_path / "doc.md"
     path.write_text("---\ntitle: Doc\n---\n\n# Doc\n\nOriginal text.\n")
 
-    loader = OkfLoader(knowledge_root=str(tmp_path))
+    loader = OkfLoader(corpus_root=str(tmp_path))
     first = loader.load("doc.md")
 
     path.write_text("---\ntitle: Doc\n---\n\n# Doc\n\nEdited text now.\n")
@@ -205,7 +205,7 @@ def test_repeated_parsing_is_deterministic(tmp_path):
         "---\ntitle: Doc\n---\n\n# Doc\n\n## A\n\nText.\n",
     )
 
-    loader = OkfLoader(knowledge_root=str(tmp_path))
+    loader = OkfLoader(corpus_root=str(tmp_path))
     first = corpus_to_dict([loader.load("doc.md")])
     second = corpus_to_dict([loader.load("doc.md")])
 
@@ -216,7 +216,7 @@ def test_oversized_section_splits_deterministically(tmp_path):
     big_text = " ".join(f"word{i}" for i in range(700))
     _write(tmp_path, "big.md", f"---\ntitle: Big\n---\n\n# Big\n\n{big_text}\n")
 
-    loader = OkfLoader(knowledge_root=str(tmp_path), max_section_tokens=300)
+    loader = OkfLoader(corpus_root=str(tmp_path), max_section_tokens=300)
     parsed = loader.load("big.md")
 
     assert len(parsed.sections) == 3
@@ -233,7 +233,7 @@ def test_oversized_section_splits_deterministically(tmp_path):
 def test_small_section_is_not_split(tmp_path):
     _write(tmp_path, "doc.md", "---\ntitle: Doc\n---\n\n# Doc\n\nShort text.\n")
 
-    loader = OkfLoader(knowledge_root=str(tmp_path), max_section_tokens=300)
+    loader = OkfLoader(corpus_root=str(tmp_path), max_section_tokens=300)
     parsed = loader.load("doc.md")
 
     assert len(parsed.sections) == 1

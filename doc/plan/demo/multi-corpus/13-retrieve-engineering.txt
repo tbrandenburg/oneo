@@ -1,0 +1,7 @@
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1091.09it/s]
+[seed] document_id=overview section_id=overview::oneo-engineering-overview::0 heading='Oneo Engineering Overview' fused_score=0.032522 origin=both source_path=overview.md vector_rank=2 vector_score=0.6965267658233643 lexical_rank=1 lexical_score=3.35384464263916
+[seed] document_id=topics/deployment section_id=topics/deployment::release-pipelines::0 heading='Release Pipelines' fused_score=0.032522 origin=both source_path=topics/deployment.md vector_rank=1 vector_score=0.7324240207672119 lexical_rank=2 lexical_score=0.9036699533462524
+[seed] document_id=topics/incident-response section_id=topics/incident-response::incident-response::0 heading='Incident Response' fused_score=0.015873 origin=vector source_path=topics/incident-response.md vector_rank=3 vector_score=0.6891052722930908 lexical_rank=None lexical_score=None
+[seed] document_id=topics/oncall section_id=topics/oncall::on-call-rotations::0 heading='On-Call Rotations' fused_score=0.015625 origin=vector source_path=topics/oncall.md vector_rank=4 vector_score=0.6861953735351562 lexical_rank=None lexical_score=None
+4 seed result(s)
+0 expanded result(s)

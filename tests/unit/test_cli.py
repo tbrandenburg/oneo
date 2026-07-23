@@ -17,6 +17,7 @@ from oneo.models import (
     ParsedDocument,
     RetrievalHit,
     RetrievalResult,
+    SectionMatch,
     ValidationResult,
     VerificationResult,
 )
@@ -45,6 +46,8 @@ class _FakeCoordinator:
         retrieve_error=None,
         query_result=None,
         query_error=None,
+        vector_search_matches=None,
+        vector_search_error=None,
     ):
         self._health_status = health_status
         self._discovered = discovered or []
@@ -62,50 +65,67 @@ class _FakeCoordinator:
         self._retrieve_error = retrieve_error
         self._query_result = query_result
         self._query_error = query_error
+        self._vector_search_matches = vector_search_matches or []
+        self._vector_search_error = vector_search_error
         self.reset_called = False
+        self.received_corpus = {}
 
     def health(self):
         return self._health_status
 
-    def discover(self, input_path: str):
+    def discover(self, input_path: str | None = None, corpus: str | None = None):
+        self.received_corpus["discover"] = corpus
         if self._discover_error is not None:
             raise self._discover_error
         return self._discovered
 
-    def parse(self, input_path: str):
+    def parse(self, input_path: str | None = None, corpus: str | None = None):
+        self.received_corpus["parse"] = corpus
         if self._parse_error is not None:
             raise self._parse_error
         return self._parsed
 
-    def validate(self, input_path: str, strict: bool = False):
+    def validate(self, input_path: str | None = None, strict: bool = False, corpus: str | None = None):
+        self.received_corpus["validate"] = corpus
         if self._validate_error is not None:
             raise self._validate_error
         return self._validation_result
 
-    def index(self, input_path: str, rebuild: bool = True, embeddings: bool = True):
+    def index(self, input_path: str | None = None, rebuild: bool = True, embeddings: bool = True, corpus: str | None = None):
+        self.received_corpus["index"] = corpus
         if self._index_error is not None:
             raise self._index_error
         return self._index_summary
 
-    def verify(self, input_path: str | None = None):
+    def verify(self, input_path: str | None = None, corpus: str | None = None):
+        self.received_corpus["verify"] = corpus
         if self._verify_error is not None:
             raise self._verify_error
         return self._verification_result
 
-    def reset(self):
+    def reset(self, corpus: str | None = None):
+        self.received_corpus["reset"] = corpus
         if self._reset_error is not None:
             raise self._reset_error
         self.reset_called = True
 
-    def retrieve(self, query: str, top_k: int | None = None, expand: bool = False):
+    def retrieve(self, query: str, top_k: int | None = None, expand: bool = False, corpus: str | None = None):
+        self.received_corpus["retrieve"] = corpus
         if self._retrieve_error is not None:
             raise self._retrieve_error
         return self._retrieval_result
 
-    def query(self, query: str, top_k: int | None = None, expand: bool = True):
+    def query(self, query: str, top_k: int | None = None, expand: bool = True, corpus: str | None = None):
+        self.received_corpus["query"] = corpus
         if self._query_error is not None:
             raise self._query_error
         return self._query_result
+
+    def vector_search(self, query: str, top_k: int | None = None, corpus: str | None = None):
+        self.received_corpus["vector_search"] = corpus
+        if self._vector_search_error is not None:
+            raise self._vector_search_error
+        return self._vector_search_matches
 
 
 def test_health_reports_connected(monkeypatch):
@@ -347,7 +367,7 @@ def test_verify_reports_ok(monkeypatch):
         lambda **_: _FakeCoordinator(verification_result=verification_result),
     )
 
-    result = runner.invoke(cli.app, ["verify"])
+    result = runner.invoke(cli.app, ["verify", "./somewhere"])
 
     assert result.exit_code == 0
     assert "documents=2 sections=2 links=1" in result.output
@@ -367,7 +387,7 @@ def test_verify_exits_non_zero_on_issue(monkeypatch):
         lambda **_: _FakeCoordinator(verification_result=verification_result),
     )
 
-    result = runner.invoke(cli.app, ["verify"])
+    result = runner.invoke(cli.app, ["verify", "./somewhere"])
 
     assert result.exit_code == 1
     assert "[issue]" in result.output
@@ -681,3 +701,316 @@ def test_query_rejects_path_security_error(monkeypatch):
 
     assert result.exit_code == 1
     assert "rejected:" in result.output
+
+
+def test_corpus_list_prints_names_and_roots(monkeypatch, tmp_path):
+    config_path = tmp_path / "corpuses.toml"
+    config_path.write_text(
+        '[corpuses.billing]\nroot = "./corpuses/billing"\n'
+        '[corpuses.engineering]\nroot = "./corpuses/engineering"\n'
+    )
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(config_path))
+
+    result = runner.invoke(cli.app, ["corpus", "list"])
+
+    assert result.exit_code == 0
+    assert "billing ./corpuses/billing" in result.output
+    assert "engineering ./corpuses/engineering" in result.output
+
+
+def test_corpus_info_reports_existing_root(monkeypatch, tmp_path):
+    root = tmp_path / "billing"
+    root.mkdir()
+    config_path = tmp_path / "corpuses.toml"
+    config_path.write_text(f'[corpuses.billing]\nroot = "{root}"\n')
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(config_path))
+
+    result = runner.invoke(cli.app, ["corpus", "info", "billing"])
+
+    assert result.exit_code == 0
+    assert "name=billing" in result.output
+    assert "exists=True" in result.output
+
+
+def test_corpus_info_unknown_name_exits_non_zero(monkeypatch, tmp_path):
+    config_path = tmp_path / "corpuses.toml"
+    config_path.write_text('[corpuses.billing]\nroot = "./corpuses/billing"\n')
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(config_path))
+
+    result = runner.invoke(cli.app, ["corpus", "info", "unknown"])
+
+    assert result.exit_code == 1
+    assert "corpus configuration error" in result.output
+
+
+def test_corpus_list_missing_config_exits_non_zero(monkeypatch, tmp_path):
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(tmp_path / "missing.toml"))
+
+    result = runner.invoke(cli.app, ["corpus", "list"])
+
+    assert result.exit_code == 1
+    assert "corpus configuration error" in result.output
+
+
+# --- --corpus flag threading coverage (gap-fill for Step 2) ---------------
+
+
+def test_files_threads_corpus_flag(monkeypatch):
+    coordinator = _FakeCoordinator(discovered=["overview.md"])
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(cli.app, ["files", "some/path", "--corpus", "engineering"])
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["discover"] == "engineering"
+
+
+def test_files_omits_corpus_flag_defaults_to_none(monkeypatch):
+    coordinator = _FakeCoordinator(discovered=["overview.md"])
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(cli.app, ["files", "some/path"])
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["discover"] is None
+
+
+def test_parse_threads_corpus_flag(monkeypatch, tmp_path):
+    parsed_document = ParsedDocument(
+        document=OkfDocument(
+            document_id="overview",
+            title="Overview",
+            source_path="overview.md",
+            metadata={"title": "Overview"},
+            content_hash="abc123",
+        ),
+        sections=(),
+        links=(),
+    )
+    coordinator = _FakeCoordinator(parsed=[parsed_document])
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+    output_path = tmp_path / "out" / "corpus.json"
+
+    result = runner.invoke(
+        cli.app,
+        ["parse", "some/path", "--output", str(output_path), "--corpus", "billing"],
+    )
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["parse"] == "billing"
+
+
+def test_parse_omits_corpus_flag_defaults_to_none(monkeypatch, tmp_path):
+    parsed_document = ParsedDocument(
+        document=OkfDocument(
+            document_id="overview",
+            title="Overview",
+            source_path="overview.md",
+            metadata={"title": "Overview"},
+            content_hash="abc123",
+        ),
+        sections=(),
+        links=(),
+    )
+    coordinator = _FakeCoordinator(parsed=[parsed_document])
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+    output_path = tmp_path / "out" / "corpus.json"
+
+    result = runner.invoke(
+        cli.app, ["parse", "some/path", "--output", str(output_path)]
+    )
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["parse"] is None
+
+
+def test_validate_threads_corpus_flag(monkeypatch):
+    validation_result = ValidationResult(diagnostics=(), ok=True)
+    coordinator = _FakeCoordinator(validation_result=validation_result)
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(
+        cli.app, ["validate", "some/path", "--strict", "--corpus", "billing"]
+    )
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["validate"] == "billing"
+
+
+def test_validate_omits_corpus_flag_defaults_to_none(monkeypatch):
+    validation_result = ValidationResult(diagnostics=(), ok=True)
+    coordinator = _FakeCoordinator(validation_result=validation_result)
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(cli.app, ["validate", "some/path"])
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["validate"] is None
+
+
+def test_index_threads_corpus_flag(monkeypatch):
+    summary = IndexSummary(documents=2, sections=2, links=1)
+    coordinator = _FakeCoordinator(index_summary=summary)
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(
+        cli.app,
+        ["index", "some/path", "--no-embeddings", "--corpus", "engineering"],
+    )
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["index"] == "engineering"
+
+
+def test_index_omits_corpus_flag_defaults_to_none(monkeypatch):
+    summary = IndexSummary(documents=2, sections=2, links=1)
+    coordinator = _FakeCoordinator(index_summary=summary)
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(cli.app, ["index", "some/path", "--no-embeddings"])
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["index"] is None
+
+
+def test_vector_search_threads_corpus_flag(monkeypatch):
+    matches = [
+        SectionMatch(
+            section_id="billing::customer-billing::0",
+            document_id="billing",
+            heading="Customer Billing",
+            score=0.9,
+            source_path="billing.md",
+        )
+    ]
+    coordinator = _FakeCoordinator(vector_search_matches=matches)
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(
+        cli.app, ["vector-search", "billing question", "--corpus", "billing"]
+    )
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["vector_search"] == "billing"
+
+
+def test_vector_search_omits_corpus_flag_defaults_to_none(monkeypatch):
+    coordinator = _FakeCoordinator(vector_search_matches=[])
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(cli.app, ["vector-search", "billing question"])
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["vector_search"] is None
+
+
+def test_retrieve_threads_corpus_flag(monkeypatch):
+    retrieval_result = RetrievalResult(query="customer billing", hits=())
+    coordinator = _FakeCoordinator(retrieval_result=retrieval_result)
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(
+        cli.app, ["retrieve", "customer billing", "--corpus", "billing"]
+    )
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["retrieve"] == "billing"
+
+
+def test_retrieve_omits_corpus_flag_defaults_to_none(monkeypatch):
+    retrieval_result = RetrievalResult(query="customer billing", hits=())
+    coordinator = _FakeCoordinator(retrieval_result=retrieval_result)
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(cli.app, ["retrieve", "customer billing"])
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["retrieve"] is None
+
+
+def test_query_threads_corpus_flag(monkeypatch):
+    retrieval_result = RetrievalResult(query="How are customers billed?", hits=())
+    answer_result = AnswerResult(
+        query="How are customers billed?",
+        answer="insufficient evidence",
+        citations=(),
+        retrieval=retrieval_result,
+        graph_paths=(),
+        insufficient_evidence=True,
+    )
+    coordinator = _FakeCoordinator(query_result=answer_result)
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(
+        cli.app, ["query", "How are customers billed?", "--corpus", "billing"]
+    )
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["query"] == "billing"
+
+
+def test_query_omits_corpus_flag_defaults_to_none(monkeypatch):
+    retrieval_result = RetrievalResult(query="How are customers billed?", hits=())
+    answer_result = AnswerResult(
+        query="How are customers billed?",
+        answer="insufficient evidence",
+        citations=(),
+        retrieval=retrieval_result,
+        graph_paths=(),
+        insufficient_evidence=True,
+    )
+    coordinator = _FakeCoordinator(query_result=answer_result)
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(cli.app, ["query", "How are customers billed?"])
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["query"] is None
+
+
+def test_reset_threads_corpus_flag(monkeypatch):
+    coordinator = _FakeCoordinator()
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(cli.app, ["reset", "--corpus", "billing"])
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["reset"] == "billing"
+
+
+def test_reset_omits_corpus_flag_defaults_to_none(monkeypatch):
+    coordinator = _FakeCoordinator()
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(cli.app, ["reset"])
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["reset"] is None
+
+
+def test_verify_threads_corpus_flag(monkeypatch):
+    verification_result = VerificationResult(
+        ok=True, issues=(), documents=2, sections=2, links=1
+    )
+    coordinator = _FakeCoordinator(verification_result=verification_result)
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(
+        cli.app, ["verify", "./somewhere", "--corpus", "billing"]
+    )
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["verify"] == "billing"
+
+
+def test_verify_omits_corpus_flag_defaults_to_none(monkeypatch):
+    verification_result = VerificationResult(
+        ok=True, issues=(), documents=2, sections=2, links=1
+    )
+    coordinator = _FakeCoordinator(verification_result=verification_result)
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
+
+    result = runner.invoke(cli.app, ["verify", "./somewhere"])
+
+    assert result.exit_code == 0
+    assert coordinator.received_corpus["verify"] is None

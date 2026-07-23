@@ -12,7 +12,7 @@ def _write(root, relative_path, content):
 
 
 def _load_all(root, paths):
-    loader = OkfLoader(knowledge_root=str(root))
+    loader = OkfLoader(corpus_root=str(root))
     return [loader.load(path) for path in paths]
 
 

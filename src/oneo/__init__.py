@@ -1,4 +1,4 @@
-"""Oneo: OKF-to-Neo4j graph retrieval proof of concept."""
+"""Oneo: OKF-to-Neo4j multi-corpus graph retrieval."""
 
 from importlib.metadata import version
 

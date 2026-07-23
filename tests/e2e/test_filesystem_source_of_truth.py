@@ -11,8 +11,16 @@ from __future__ import annotations
 import pytest
 
 from oneo.config import Settings
+from oneo.corpus import Corpus, CorpusRegistry
 from oneo.neo4j_store import Neo4jStore
 from oneo.pipeline import Oneo
+
+
+def _registry_for(root) -> CorpusRegistry:
+    """Build a single-corpus registry fixture rooted at ``root``, used in
+    place of the removed global ``Settings(corpus_root=...)``."""
+
+    return CorpusRegistry({"test": Corpus(name="test", root=str(root))}, "test")
 
 NEO4J_URI = "bolt://localhost:7687"
 NEO4J_USERNAME = "neo4j"
@@ -50,8 +58,9 @@ def _make_store() -> Neo4jStore:
 
 def _section_embedding_hashes(store: Neo4jStore) -> dict[str, str]:
     records = store._run(
-        "MATCH (s:OkfSection) RETURN s.section_id AS section_id, "
-        "s.embedding_input_hash AS embedding_input_hash"
+        "MATCH (s:OkfSection {corpus: $corpus}) RETURN s.section_id AS section_id, "
+        "s.embedding_input_hash AS embedding_input_hash",
+        corpus="test",
     )
     return {record["section_id"]: record["embedding_input_hash"] for record in records}
 
@@ -70,8 +79,8 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         "Unrelated notes about seasonal weather patterns.\n"
     )
 
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     unrelated_marker_id = "unrelated-marker-doc"
 
@@ -82,7 +91,7 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         assert summary.sections == 2
 
         with _make_store() as store:
-            baseline_export = store.export_graph()
+            baseline_export = store.export_graph("test")
             baseline_hashes = _section_embedding_hashes(store)
             store._run(
                 "MERGE (m:UnrelatedMarker {id: $id}) SET m.note = 'not owned by oneo'",
@@ -107,9 +116,9 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         coordinator.index(str(root), rebuild=True, embeddings=True)
 
         with _make_store() as store:
-            edited_export = store.export_graph()
+            edited_export = store.export_graph("test")
             edited_hashes = _section_embedding_hashes(store)
-            edited_texts = store.get_section_texts([overview_section_id])
+            edited_texts = store.get_section_texts([overview_section_id], "test")
 
         edited_document = next(
             d for d in edited_export["documents"] if d["document_id"] == "overview"
@@ -142,7 +151,7 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         coordinator.index(str(root), rebuild=True, embeddings=True)
 
         with _make_store() as store:
-            linked_export = store.export_graph()
+            linked_export = store.export_graph("test")
 
         assert len(linked_export["links"]) == 1
         link = linked_export["links"][0]
@@ -155,9 +164,10 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         coordinator.index(str(root), rebuild=True, embeddings=True)
 
         with _make_store() as store:
-            final_export = store.export_graph()
+            final_export = store.export_graph("test")
             final_texts = store._run(
-                "MATCH (s:OkfSection) RETURN s.document_id AS document_id"
+                "MATCH (s:OkfSection {corpus: $corpus}) RETURN s.document_id AS document_id",
+                corpus="test",
             )
 
         final_document_ids = {d["document_id"] for d in final_export["documents"]}
@@ -165,7 +175,7 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         assert "overview" in final_document_ids
 
         # deleted files do not remain discoverable
-        assert "other.md" not in coordinator.discover()
+        assert "other.md" not in coordinator.discover(str(root))
 
         # its section nodes are gone
         assert all(row["document_id"] != "other" for row in final_texts)
@@ -173,8 +183,9 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         # its vectors are gone (no remaining section belongs to "other")
         with _make_store() as store:
             remaining_embeddings = store._run(
-                "MATCH (s:OkfSection) WHERE s.document_id = 'other' "
-                "RETURN s.embedding AS embedding"
+                "MATCH (s:OkfSection {corpus: $corpus}) WHERE s.document_id = 'other' "
+                "RETURN s.embedding AS embedding",
+                corpus="test",
             )
         assert remaining_embeddings == []
 

@@ -35,30 +35,37 @@ FULLTEXT_INDEX_NAME = "okf_section_fulltext"
 class OkfGraphStore(Protocol):
     """The narrow persistence boundary the pipeline depends on."""
 
-    def reset(self) -> None: ...
+    def reset(self, corpus: str) -> None: ...
     def apply_schema(self) -> None: ...
-    def write_documents(self, documents: list[OkfDocument]) -> None: ...
-    def write_sections(self, sections: list[OkfSection]) -> None: ...
-    def write_links(self, links: list[OkfLink]) -> None: ...
-    def list_documents(self) -> list[IndexedDocument]: ...
+    def write_documents(self, documents: list[OkfDocument], corpus: str) -> None: ...
+    def write_sections(self, sections: list[OkfSection], corpus: str) -> None: ...
+    def write_links(self, links: list[OkfLink], corpus: str) -> None: ...
+    def list_documents(self, corpus: str) -> list[IndexedDocument]: ...
     def sections_needing_embedding(
-        self, model_name: str, dimensions: int, input_hashes: dict[str, str]
+        self,
+        model_name: str,
+        dimensions: int,
+        input_hashes: dict[str, str],
+        corpus: str,
     ) -> list[str]: ...
-    def write_embeddings(self, rows: list[dict[str, Any]]) -> None: ...
+    def write_embeddings(self, rows: list[dict[str, Any]], corpus: str) -> None: ...
     def create_vector_index(self, dimensions: int) -> None: ...
     def vector_index_state(self) -> str | None: ...
     def wait_for_vector_index_online(
         self, timeout_seconds: float, poll_interval_seconds: float
     ) -> str | None: ...
-    def vector_search(self, embedding: list[float], top_k: int) -> Any: ...
+    def vector_search(
+        self, embedding: list[float], top_k: int, corpus: str
+    ) -> Any: ...
     def wait_for_vector_index_queryable(
         self,
         sample_embedding: list[float],
         sample_section_id: str,
+        corpus: str,
         timeout_seconds: float,
         poll_interval_seconds: float,
     ) -> bool: ...
-    def fulltext_search(self, query: str, top_k: int) -> Any: ...
+    def fulltext_search(self, query: str, top_k: int, corpus: str) -> Any: ...
     def wait_for_fulltext_index_online(
         self, timeout_seconds: float, poll_interval_seconds: float
     ) -> str | None: ...
@@ -66,18 +73,23 @@ class OkfGraphStore(Protocol):
         self,
         sample_query: str,
         sample_section_id: str,
+        corpus: str,
         timeout_seconds: float,
         poll_interval_seconds: float,
     ) -> bool: ...
-    def expand_neighbors(self, document_ids: list[str], hops: int) -> Any: ...
+    def expand_neighbors(
+        self, document_ids: list[str], hops: int, corpus: str
+    ) -> Any: ...
     def section_by_anchor(
-        self, document_id: str, anchor: str
+        self, document_id: str, anchor: str, corpus: str
     ) -> SectionMatch | None: ...
-    def first_section(self, document_id: str) -> SectionMatch | None: ...
+    def first_section(self, document_id: str, corpus: str) -> SectionMatch | None: ...
     def best_section_in_document(
-        self, document_id: str, embedding: list[float], query_text: str
+        self, document_id: str, embedding: list[float], query_text: str, corpus: str
     ) -> SectionMatch | None: ...
-    def get_section_texts(self, section_ids: list[str]) -> dict[str, str]: ...
+    def get_section_texts(
+        self, section_ids: list[str], corpus: str
+    ) -> dict[str, str]: ...
 
 
 class Neo4jStore:
@@ -111,6 +123,28 @@ class Neo4jStore:
         )
         return records
 
+    def _run_scoped(self, query: str, corpus: str, **parameters: object) -> Any:
+        """Run a corpus-scoped Cypher statement, binding ``$corpus``.
+
+        This is the single seam every corpus-scoped read, write, or
+        delete must go through. It requires a non-empty ``corpus`` and
+        raises before issuing any query when it is missing or blank --
+        turning "a corpus filter was forgotten on this query" from a
+        possible silent full-graph operation into a hard, immediate
+        error, most critically on the destructive :meth:`reset` path.
+        Every corpus-scoped query text still names its own ``corpus``
+        match/filter explicitly (Cypher patterns differ too much
+        between ``MERGE`` property maps and ``WHERE`` clauses to
+        generate generically), but none of them may be issued without
+        going through this validating seam.
+        """
+
+        if not corpus:
+            raise ValueError(
+                "corpus is required for a corpus-scoped Neo4j operation"
+            )
+        return self._run(query, corpus=corpus, **parameters)
+
     def health(self) -> HealthStatus:
         """Run a real Neo4j query to verify connectivity.
 
@@ -143,12 +177,15 @@ class Neo4jStore:
                 detail=str(exc),
             )
 
-    def reset(self) -> None:
+    def reset(self, corpus: str) -> None:
         """Delete only the nodes (and their relationships) owned by this
-        index. Unrelated Neo4j data is never touched."""
+        index for ``corpus``. Unrelated Neo4j data, and other
+        corpuses' owned data, is never touched."""
 
-        self._run(
-            "MATCH (n) WHERE n.index_owner = $owner DETACH DELETE n",
+        self._run_scoped(
+            "MATCH (n) WHERE n.index_owner = $owner AND n.corpus = $corpus "
+            "DETACH DELETE n",
+            corpus=corpus,
             owner=INDEX_OWNER,
         )
 
@@ -157,16 +194,31 @@ class Neo4jStore:
         OKF graph model. Idempotent; safe to call on every index run."""
 
         statements = (
-            "CREATE CONSTRAINT okf_document_id_unique IF NOT EXISTS "
-            "FOR (d:OkfDocument) REQUIRE d.document_id IS UNIQUE",
-            "CREATE CONSTRAINT okf_section_id_unique IF NOT EXISTS "
-            "FOR (s:OkfSection) REQUIRE s.section_id IS UNIQUE",
+            # Composite uniqueness constraints scoped by corpus, replacing
+            # the single-corpus, single-property constraints. Explicit
+            # `DROP ... IF EXISTS` first so a pre-v2 Neo4j database (or a
+            # persistent test/dev instance) that still carries the old
+            # single-property constraint under the same conceptual
+            # purpose does not silently block these composite constraints
+            # under a new name.
+            "DROP CONSTRAINT okf_document_id_unique IF EXISTS",
+            "DROP CONSTRAINT okf_section_id_unique IF EXISTS",
+            "CREATE CONSTRAINT okf_document_corpus_id_unique IF NOT EXISTS "
+            "FOR (d:OkfDocument) REQUIRE (d.corpus, d.document_id) IS UNIQUE",
+            "CREATE CONSTRAINT okf_section_corpus_id_unique IF NOT EXISTS "
+            "FOR (s:OkfSection) REQUIRE (s.corpus, s.section_id) IS UNIQUE",
             "CREATE INDEX okf_document_index_owner IF NOT EXISTS "
             "FOR (d:OkfDocument) ON (d.index_owner)",
             "CREATE INDEX okf_section_index_owner IF NOT EXISTS "
             "FOR (s:OkfSection) ON (s.index_owner)",
             "CREATE INDEX okf_section_document_id IF NOT EXISTS "
             "FOR (s:OkfSection) ON (s.document_id)",
+            # Supporting index on the corpus dimension itself, used by
+            # every corpus-scoped read that filters `OkfSection` by
+            # `corpus` outside of the composite uniqueness constraint
+            # (which only backs `document_id`/`section_id` lookups).
+            "CREATE INDEX okf_section_corpus IF NOT EXISTS "
+            "FOR (s:OkfSection) ON (s.corpus)",
             # Registers the `target_anchor` property key token even when no
             # LINKS_TO relationship currently has it set (e.g. a corpus
             # whose only links have no #anchor fragment). Without this,
@@ -209,10 +261,10 @@ class Neo4jStore:
             """
         )
 
-    def write_documents(self, documents: list[OkfDocument]) -> None:
+    def write_documents(self, documents: list[OkfDocument], corpus: str) -> None:
         """Idempotently write ``OkfDocument`` nodes, keyed by
-        ``document_id``. Metadata is serialized to JSON, since Neo4j
-        node properties cannot hold nested maps."""
+        ``(corpus, document_id)``. Metadata is serialized to JSON, since
+        Neo4j node properties cannot hold nested maps."""
 
         rows = [
             {
@@ -224,24 +276,25 @@ class Neo4jStore:
             }
             for document in documents
         ]
-        self._run(
+        self._run_scoped(
             """
             UNWIND $rows AS row
-            MERGE (d:OkfDocument {document_id: row.document_id})
+            MERGE (d:OkfDocument {corpus: $corpus, document_id: row.document_id})
             SET d.title = row.title,
                 d.source_path = row.source_path,
                 d.metadata = row.metadata,
                 d.content_hash = row.content_hash,
                 d.index_owner = $owner
             """,
+            corpus=corpus,
             rows=rows,
             owner=INDEX_OWNER,
         )
 
-    def write_sections(self, sections: list[OkfSection]) -> None:
+    def write_sections(self, sections: list[OkfSection], corpus: str) -> None:
         """Idempotently write ``OkfSection`` nodes, keyed by
-        ``section_id``, and their ``HAS_SECTION`` edge from the owning
-        document."""
+        ``(corpus, section_id)``, and their ``HAS_SECTION`` edge from
+        the owning document."""
 
         rows = [
             {
@@ -257,11 +310,11 @@ class Neo4jStore:
             }
             for section in sections
         ]
-        self._run(
+        self._run_scoped(
             """
             UNWIND $rows AS row
-            MATCH (d:OkfDocument {document_id: row.document_id})
-            MERGE (s:OkfSection {section_id: row.section_id})
+            MATCH (d:OkfDocument {corpus: $corpus, document_id: row.document_id})
+            MERGE (s:OkfSection {corpus: $corpus, section_id: row.section_id})
             SET s.document_id = row.document_id,
                 s.heading = row.heading,
                 s.heading_path = row.heading_path,
@@ -271,16 +324,23 @@ class Neo4jStore:
                 s.content_hash = row.content_hash,
                 s.source_path = row.source_path,
                 s.index_owner = $owner
-            MERGE (d)-[:HAS_SECTION]->(s)
+            MERGE (d)-[r:HAS_SECTION]->(s)
+            SET r.corpus = $corpus
             """,
+            corpus=corpus,
             rows=rows,
             owner=INDEX_OWNER,
         )
 
     def sections_needing_embedding(
-        self, model_name: str, dimensions: int, input_hashes: dict[str, str]
+        self,
+        model_name: str,
+        dimensions: int,
+        input_hashes: dict[str, str],
+        corpus: str,
     ) -> list[str]:
-        """Return the IDs of owned sections that must be (re-)embedded.
+        """Return the IDs of ``corpus``'s owned sections that must be
+        (re-)embedded.
 
         A section is re-embedded when its embedding is missing, its
         stored model name or dimensions differ from the current fixed
@@ -288,15 +348,16 @@ class Neo4jStore:
         ``input_hashes[section_id]``.
         """
 
-        records = self._run(
+        records = self._run_scoped(
             """
-            MATCH (s:OkfSection {index_owner: $owner})
+            MATCH (s:OkfSection {index_owner: $owner, corpus: $corpus})
             RETURN s.section_id AS section_id,
                    s.embedding IS NULL AS missing_embedding,
                    s.embedding_model AS embedding_model,
                    s.embedding_dimensions AS embedding_dimensions,
                    s.embedding_input_hash AS embedding_input_hash
             """,
+            corpus=corpus,
             owner=INDEX_OWNER,
         )
         stale: list[str] = []
@@ -314,21 +375,22 @@ class Neo4jStore:
                 stale.append(section_id)
         return stale
 
-    def write_embeddings(self, rows: list[dict[str, Any]]) -> None:
+    def write_embeddings(self, rows: list[dict[str, Any]], corpus: str) -> None:
         """Store the embedding vector and embedding metadata for each
-        given section. Each row must contain ``section_id``,
-        ``embedding``, ``embedding_model``, ``embedding_dimensions``,
-        and ``embedding_input_hash``."""
+        given section of ``corpus``. Each row must contain
+        ``section_id``, ``embedding``, ``embedding_model``,
+        ``embedding_dimensions``, and ``embedding_input_hash``."""
 
-        self._run(
+        self._run_scoped(
             """
             UNWIND $rows AS row
-            MATCH (s:OkfSection {section_id: row.section_id})
+            MATCH (s:OkfSection {corpus: $corpus, section_id: row.section_id})
             SET s.embedding = row.embedding,
                 s.embedding_model = row.embedding_model,
                 s.embedding_dimensions = row.embedding_dimensions,
                 s.embedding_input_hash = row.embedding_input_hash
             """,
+            corpus=corpus,
             rows=rows,
         )
 
@@ -379,6 +441,7 @@ class Neo4jStore:
         self,
         sample_embedding: list[float],
         sample_section_id: str,
+        corpus: str,
         timeout_seconds: float = 30.0,
         poll_interval_seconds: float = 0.2,
     ) -> bool:
@@ -405,18 +468,19 @@ class Neo4jStore:
 
         deadline = time.monotonic() + timeout_seconds
         while True:
-            matches = self.vector_search(sample_embedding, top_k=10)
+            matches = self.vector_search(sample_embedding, top_k=10, corpus=corpus)
             if any(match.section_id == sample_section_id for match in matches):
                 return True
             if time.monotonic() >= deadline:
                 return False
             time.sleep(poll_interval_seconds)
 
-    def write_links(self, links: list[OkfLink]) -> None:
+    def write_links(self, links: list[OkfLink], corpus: str) -> None:
         """Idempotently write resolved ``LINKS_TO`` edges between
-        documents. ``links`` must already have ``target_document_id``
-        resolved (see :func:`oneo.validation.resolve_links`); links
-        without a resolved target are silently skipped."""
+        documents of ``corpus``. ``links`` must already have
+        ``target_document_id`` resolved (see
+        :func:`oneo.validation.resolve_links`); links without a
+        resolved target are silently skipped."""
 
         rows = [
             {
@@ -429,12 +493,13 @@ class Neo4jStore:
             for link in links
             if link.target_document_id is not None
         ]
-        self._run(
+        self._run_scoped(
             """
             UNWIND $rows AS row
-            MATCH (src:OkfDocument {document_id: row.source_document_id})
-            MATCH (tgt:OkfDocument {document_id: row.target_document_id})
+            MATCH (src:OkfDocument {corpus: $corpus, document_id: row.source_document_id})
+            MATCH (tgt:OkfDocument {corpus: $corpus, document_id: row.target_document_id})
             MERGE (src)-[r:LINKS_TO {
+                corpus: $corpus,
                 source_section_id: row.source_section_id,
                 raw_target: row.raw_target
             }]->(tgt)
@@ -443,23 +508,25 @@ class Neo4jStore:
                 SET r.target_anchor = row.target_anchor
             )
             """,
+            corpus=corpus,
             rows=rows,
             owner=INDEX_OWNER,
         )
 
-    def list_documents(self) -> list[IndexedDocument]:
-        """Return every document node owned by this index, sorted by
-        ``document_id``."""
+    def list_documents(self, corpus: str) -> list[IndexedDocument]:
+        """Return every document node owned by this index in
+        ``corpus``, sorted by ``document_id``."""
 
-        records = self._run(
+        records = self._run_scoped(
             """
-            MATCH (d:OkfDocument {index_owner: $owner})
+            MATCH (d:OkfDocument {index_owner: $owner, corpus: $corpus})
             RETURN d.document_id AS document_id,
                    d.title AS title,
                    d.source_path AS source_path,
                    d.content_hash AS content_hash
             ORDER BY d.document_id
             """,
+            corpus=corpus,
             owner=INDEX_OWNER,
         )
         return [
@@ -472,53 +539,61 @@ class Neo4jStore:
             for record in records
         ]
 
-    def count_sections(self) -> int:
-        """Return the number of section nodes owned by this index."""
+    def count_sections(self, corpus: str) -> int:
+        """Return the number of section nodes owned by this index in
+        ``corpus``."""
 
-        records = self._run(
-            "MATCH (s:OkfSection {index_owner: $owner}) RETURN count(s) AS n",
+        records = self._run_scoped(
+            "MATCH (s:OkfSection {index_owner: $owner, corpus: $corpus}) "
+            "RETURN count(s) AS n",
+            corpus=corpus,
             owner=INDEX_OWNER,
         )
         return int(records[0]["n"])
 
-    def count_links(self) -> int:
-        """Return the number of ``LINKS_TO`` edges owned by this index."""
+    def count_links(self, corpus: str) -> int:
+        """Return the number of ``LINKS_TO`` edges owned by this index
+        in ``corpus``."""
 
-        records = self._run(
+        records = self._run_scoped(
             """
-            MATCH (:OkfDocument)-[r:LINKS_TO {index_owner: $owner}]->(:OkfDocument)
+            MATCH (:OkfDocument)-[r:LINKS_TO {index_owner: $owner, corpus: $corpus}]->(:OkfDocument)
             RETURN count(r) AS n
             """,
+            corpus=corpus,
             owner=INDEX_OWNER,
         )
         return int(records[0]["n"])
 
-    def export_graph(self) -> dict[str, Any]:
-        """Return a deterministic, JSON-serializable snapshot of the
-        owned graph, suitable for comparing two independent rebuilds."""
+    def export_graph(self, corpus: str) -> dict[str, Any]:
+        """Return a deterministic, JSON-serializable snapshot of
+        ``corpus``'s owned graph, suitable for comparing two
+        independent rebuilds of that corpus."""
 
-        document_records = self._run(
+        document_records = self._run_scoped(
             """
-            MATCH (d:OkfDocument {index_owner: $owner})
+            MATCH (d:OkfDocument {index_owner: $owner, corpus: $corpus})
             RETURN d.document_id AS document_id, d.title AS title,
                    d.source_path AS source_path, d.content_hash AS content_hash
             ORDER BY d.document_id
             """,
+            corpus=corpus,
             owner=INDEX_OWNER,
         )
-        section_records = self._run(
+        section_records = self._run_scoped(
             """
-            MATCH (s:OkfSection {index_owner: $owner})
+            MATCH (s:OkfSection {index_owner: $owner, corpus: $corpus})
             RETURN s.section_id AS section_id, s.document_id AS document_id,
                    s.heading AS heading, s.ordinal AS ordinal,
                    s.anchor AS anchor, s.content_hash AS content_hash
             ORDER BY s.section_id
             """,
+            corpus=corpus,
             owner=INDEX_OWNER,
         )
-        link_records = self._run(
+        link_records = self._run_scoped(
             """
-            MATCH (a:OkfDocument)-[r:LINKS_TO {index_owner: $owner}]->(b:OkfDocument)
+            MATCH (a:OkfDocument)-[r:LINKS_TO {index_owner: $owner, corpus: $corpus}]->(b:OkfDocument)
             RETURN a.document_id AS source_document_id,
                    b.document_id AS target_document_id,
                    r.source_section_id AS source_section_id,
@@ -526,6 +601,7 @@ class Neo4jStore:
                    coalesce(r.target_anchor, null) AS target_anchor
             ORDER BY source_document_id, raw_target, source_section_id
             """,
+            corpus=corpus,
             owner=INDEX_OWNER,
         )
         return {
@@ -534,9 +610,11 @@ class Neo4jStore:
             "links": [dict(record) for record in link_records],
         }
 
-    def vector_search(self, embedding: list[float], top_k: int) -> list[SectionMatch]:
-        """Vector similarity search over owned ``OkfSection`` nodes
-        using the cosine-similarity vector index.
+    def vector_search(
+        self, embedding: list[float], top_k: int, corpus: str
+    ) -> list[SectionMatch]:
+        """Vector similarity search over owned ``OkfSection`` nodes of
+        ``corpus`` using the cosine-similarity vector index.
 
         Returns an empty result set (rather than raising) when the
         vector index has not been created yet: a missing index means
@@ -555,7 +633,7 @@ class Neo4jStore:
                 f"""
                 CALL db.index.vector.queryNodes('{VECTOR_INDEX_NAME}', $top_k, $embedding)
                 YIELD node, score
-                WHERE node.index_owner = $owner
+                WHERE node.index_owner = $owner AND node.corpus = $corpus
                 RETURN node.section_id AS section_id,
                        node.document_id AS document_id,
                        node.heading AS heading,
@@ -565,6 +643,7 @@ class Neo4jStore:
                 embedding=embedding,
                 top_k=top_k,
                 owner=INDEX_OWNER,
+                corpus=corpus,
             )
         except Neo4jError as exc:
             if "no such vector schema index" in str(exc).lower():
@@ -612,6 +691,7 @@ class Neo4jStore:
         self,
         sample_query: str,
         sample_section_id: str,
+        corpus: str,
         timeout_seconds: float = 30.0,
         poll_interval_seconds: float = 0.2,
     ) -> bool:
@@ -626,22 +706,23 @@ class Neo4jStore:
 
         deadline = time.monotonic() + timeout_seconds
         while True:
-            matches = self.fulltext_search(sample_query, top_k=5)
+            matches = self.fulltext_search(sample_query, top_k=5, corpus=corpus)
             if any(match.section_id == sample_section_id for match in matches):
                 return True
             if time.monotonic() >= deadline:
                 return False
             time.sleep(poll_interval_seconds)
 
-    def fulltext_search(self, query: str, top_k: int) -> list[SectionMatch]:
-        """Full-text search over owned ``OkfSection`` nodes using the
-        Neo4j full-text index on ``heading`` and ``text``."""
+    def fulltext_search(self, query: str, top_k: int, corpus: str) -> list[SectionMatch]:
+        """Full-text search over owned ``OkfSection`` nodes of
+        ``corpus`` using the Neo4j full-text index on ``heading`` and
+        ``text``."""
 
         records = self._run(
             f"""
             CALL db.index.fulltext.queryNodes('{FULLTEXT_INDEX_NAME}', $search_text, {{limit: $top_k}})
             YIELD node, score
-            WHERE node.index_owner = $owner
+            WHERE node.index_owner = $owner AND node.corpus = $corpus
             RETURN node.section_id AS section_id,
                    node.document_id AS document_id,
                    node.heading AS heading,
@@ -651,6 +732,7 @@ class Neo4jStore:
             search_text=query,
             top_k=top_k,
             owner=INDEX_OWNER,
+            corpus=corpus,
         )
         return [
             SectionMatch(
@@ -663,16 +745,21 @@ class Neo4jStore:
             for record in records
         ]
 
-    def expand_neighbors(self, document_ids: list[str], hops: int = 1) -> list[dict[str, Any]]:
+    def expand_neighbors(
+        self, document_ids: list[str], hops: int, corpus: str
+    ) -> list[dict[str, Any]]:
         """Return every one-hop ``LINKS_TO`` edge connecting any of the
-        owned ``document_ids`` to a neighboring owned document that is
-        not itself among ``document_ids``.
+        owned ``document_ids`` (within ``corpus``) to a neighboring
+        owned document, in the same corpus, that is not itself among
+        ``document_ids``.
 
         Only one-hop expansion is supported; additional traversal
         depth is outside the initial scope (see Step 7 of the plan).
         Each returned row has ``seed_document_id``, ``direction``
         (``"outgoing"`` or ``"incoming"``), ``neighbor_document_id``,
         ``source_section_id``, ``raw_target``, and ``target_anchor``.
+        The corpus filter on both the seed and neighbor documents
+        guarantees expansion never crosses a corpus boundary.
         """
 
         if hops != 1:
@@ -680,9 +767,9 @@ class Neo4jStore:
 
         records = self._run(
             """
-            MATCH (seed:OkfDocument {index_owner: $owner})
+            MATCH (seed:OkfDocument {index_owner: $owner, corpus: $corpus})
             WHERE seed.document_id IN $document_ids
-            OPTIONAL MATCH (seed)-[out:LINKS_TO]->(outNeighbor:OkfDocument)
+            OPTIONAL MATCH (seed)-[out:LINKS_TO {corpus: $corpus}]->(outNeighbor:OkfDocument {corpus: $corpus})
             WHERE NOT outNeighbor.document_id IN $document_ids
             WITH seed, collect(DISTINCT {
                 direction: 'outgoing', neighbor: outNeighbor.document_id,
@@ -690,7 +777,7 @@ class Neo4jStore:
                 raw_target: out.raw_target,
                 target_anchor: coalesce(out.target_anchor, null)
             }) AS outgoing_edges
-            OPTIONAL MATCH (inNeighbor:OkfDocument)-[incoming:LINKS_TO]->(seed)
+            OPTIONAL MATCH (inNeighbor:OkfDocument {corpus: $corpus})-[incoming:LINKS_TO {corpus: $corpus}]->(seed)
             WHERE NOT inNeighbor.document_id IN $document_ids
             WITH seed, outgoing_edges, collect(DISTINCT {
                 direction: 'incoming', neighbor: inNeighbor.document_id,
@@ -709,25 +796,30 @@ class Neo4jStore:
                    edge.target_anchor AS target_anchor
             """,
             owner=INDEX_OWNER,
+            corpus=corpus,
             document_ids=document_ids,
         )
         return [dict(record) for record in records]
 
-    def section_by_anchor(self, document_id: str, anchor: str) -> SectionMatch | None:
-        """Return the owned section matching ``anchor`` within
-        ``document_id``, or ``None`` if no section carries that
+    def section_by_anchor(
+        self, document_id: str, anchor: str, corpus: str
+    ) -> SectionMatch | None:
+        """Return the owned section of ``corpus`` matching ``anchor``
+        within ``document_id``, or ``None`` if no section carries that
         anchor."""
 
         records = self._run(
             """
             MATCH (s:OkfSection {
-                index_owner: $owner, document_id: $document_id, anchor: $anchor
+                index_owner: $owner, corpus: $corpus,
+                document_id: $document_id, anchor: $anchor
             })
             RETURN s.section_id AS section_id, s.document_id AS document_id,
                    s.heading AS heading, s.source_path AS source_path
             LIMIT 1
             """,
             owner=INDEX_OWNER,
+            corpus=corpus,
             document_id=document_id,
             anchor=anchor,
         )
@@ -742,20 +834,21 @@ class Neo4jStore:
             source_path=record["source_path"],
         )
 
-    def first_section(self, document_id: str) -> SectionMatch | None:
-        """Return the first owned section (lowest ``ordinal``) within
-        ``document_id``, the deterministic fallback used when no
-        anchor or relevant section is found."""
+    def first_section(self, document_id: str, corpus: str) -> SectionMatch | None:
+        """Return the first owned section (lowest ``ordinal``) of
+        ``corpus`` within ``document_id``, the deterministic fallback
+        used when no anchor or relevant section is found."""
 
         records = self._run(
             """
-            MATCH (s:OkfSection {index_owner: $owner, document_id: $document_id})
+            MATCH (s:OkfSection {index_owner: $owner, corpus: $corpus, document_id: $document_id})
             RETURN s.section_id AS section_id, s.document_id AS document_id,
                    s.heading AS heading, s.source_path AS source_path
             ORDER BY s.ordinal ASC
             LIMIT 1
             """,
             owner=INDEX_OWNER,
+            corpus=corpus,
             document_id=document_id,
         )
         if not records:
@@ -770,29 +863,29 @@ class Neo4jStore:
         )
 
     def best_section_in_document(
-        self, document_id: str, embedding: list[float], query_text: str
+        self, document_id: str, embedding: list[float], query_text: str, corpus: str
     ) -> SectionMatch | None:
         """Return the highest lexical- or vector-relevance owned
-        section within ``document_id`` for the given query, or
-        ``None`` if neither search path returns a match in that
-        document.
+        section within ``document_id`` (in ``corpus``) for the given
+        query, or ``None`` if neither search path returns a match in
+        that document.
 
         Reuses the existing vector and full-text search paths,
         filtering their results to ``document_id`` in Python, rather
         than issuing a document-scoped Cypher query.
         """
 
-        for match in self.fulltext_search(query_text, top_k=20):
+        for match in self.fulltext_search(query_text, top_k=20, corpus=corpus):
             if match.document_id == document_id:
                 return match
-        for match in self.vector_search(embedding, top_k=20):
+        for match in self.vector_search(embedding, top_k=20, corpus=corpus):
             if match.document_id == document_id:
                 return match
         return None
 
-    def get_section_texts(self, section_ids: list[str]) -> dict[str, str]:
-        """Return the stored ``text`` for each owned section in
-        ``section_ids``, keyed by ``section_id``.
+    def get_section_texts(self, section_ids: list[str], corpus: str) -> dict[str, str]:
+        """Return the stored ``text`` for each owned section of
+        ``corpus`` in ``section_ids``, keyed by ``section_id``.
 
         Used exclusively to build grounded answer-generation context;
         missing IDs are simply absent from the returned mapping.
@@ -801,12 +894,13 @@ class Neo4jStore:
         if not section_ids:
             return {}
 
-        records = self._run(
+        records = self._run_scoped(
             """
-            MATCH (s:OkfSection {index_owner: $owner})
+            MATCH (s:OkfSection {index_owner: $owner, corpus: $corpus})
             WHERE s.section_id IN $section_ids
             RETURN s.section_id AS section_id, s.text AS text
             """,
+            corpus=corpus,
             owner=INDEX_OWNER,
             section_ids=section_ids,
         )

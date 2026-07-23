@@ -1,4 +1,4 @@
-.PHONY: help sync up down health validate index reset query retrieve cypher test test-unit test-integration test-e2e demo publish clean
+.PHONY: help sync up down health validate index reset query retrieve cypher corpus-list corpus-info test test-unit test-integration test-e2e demo publish clean
 
 help:
 	@echo "Available targets:"
@@ -6,8 +6,10 @@ help:
 	@echo "  up               Start Neo4j (docker compose)"
 	@echo "  down             Stop Neo4j (docker compose)"
 	@echo "  health           Check Neo4j connectivity via the CLI"
-	@echo "  validate         Validate the OKF knowledge corpus (strict)"
-	@echo "  index            Rebuild the Neo4j graph index from ./knowledge"
+	@echo "  corpus-list      List configured corpuses; use ONEO_CORPUS_CONFIG"
+	@echo "  corpus-info      Describe a corpus; use CORPUS=<name>"
+	@echo "  validate         Validate a corpus (strict); use CORPUS=<name>"
+	@echo "  index            Rebuild the Neo4j graph index for CORPUS=<name>"
 	@echo "  reset            Delete the derived Neo4j index"
 	@echo "  retrieve         Run hybrid retrieval; use QUERY=\"...\""
 	@echo "  query            Run a grounded query; use QUERY=\"...\""
@@ -20,7 +22,8 @@ help:
 	@echo "  publish          Bump version, tag, and release; use BUMP=patch|minor|major"
 	@echo "  clean            Remove build artifacts"
 
-KNOWLEDGE_ROOT ?= ./knowledge
+CORPUS ?= billing
+CORPUS_ROOT := corpuses/$(CORPUS)
 QUERY ?= How are customers billed?
 NEO4J_HTTP_URL ?= http://localhost:7474/db/neo4j/query/v2
 NEO4J_USER ?= neo4j
@@ -40,11 +43,17 @@ down:
 health:
 	uv run oneo health
 
+corpus-list:
+	uv run oneo corpus list
+
+corpus-info:
+	uv run oneo corpus info $(CORPUS)
+
 validate:
-	uv run oneo validate $(KNOWLEDGE_ROOT) --strict
+	uv run oneo validate $(CORPUS_ROOT) --strict
 
 index:
-	uv run oneo index $(KNOWLEDGE_ROOT) --rebuild
+	uv run oneo index $(CORPUS_ROOT) --rebuild
 
 reset:
 	uv run oneo reset

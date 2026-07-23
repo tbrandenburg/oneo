@@ -14,8 +14,12 @@ class Settings(BaseSettings):
     """Runtime configuration for the Oneo pipeline.
 
     Attributes:
-        knowledge_root: Filesystem directory that is the canonical source of
-            OKF documents. All ingest paths must resolve inside this root.
+        corpus_config: Path to the required ``corpuses.toml`` file that
+            maps named OKF corpuses to their filesystem roots. There is
+            no implicit global root; at least one corpus must be
+            configured.
+        default_corpus: Optional name of the corpus to use when a
+            corpus-scoped command omits an explicit corpus selection.
         neo4j_uri: Bolt URI of the Neo4j instance.
         neo4j_username: Neo4j authentication username.
         neo4j_password: Neo4j authentication password.
@@ -49,7 +53,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    knowledge_root: str = "./knowledge"
+    corpus_config: str = "corpuses.toml"
+    default_corpus: str | None = None
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_username: str = "neo4j"
     neo4j_password: str = "password"

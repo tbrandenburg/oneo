@@ -14,6 +14,7 @@ from typing import Any
 
 from oneo.answering import ChatModel, generate_answer
 from oneo.config import Settings
+from oneo.corpus import CorpusRegistry
 from oneo.discovery import discover_files
 from oneo.embedding import (
     SectionEmbedder,
@@ -50,9 +51,53 @@ class Oneo:
     grounded answers (e.g. the CLI) inject a concrete ``ChatModel``.
     """
 
-    def __init__(self, settings: Settings, chat_model: ChatModel | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        registry: CorpusRegistry | None = None,
+        chat_model: ChatModel | None = None,
+    ) -> None:
         self._settings = settings
+        self._registry_override = registry
         self._chat_model = chat_model
+
+    @property
+    def _registry(self) -> CorpusRegistry:
+        """Return the corpus registry, loading it from the configured
+        ``corpuses.toml`` on first use if none was injected at
+        construction time."""
+
+        if self._registry_override is None:
+            self._registry_override = CorpusRegistry.load(
+                self._settings.corpus_config, self._settings.default_corpus
+            )
+        return self._registry_override
+
+    def _resolve_corpus_name(self, corpus: str | None) -> str:
+        """Resolve ``corpus`` to a registered corpus name, falling back
+        to the registry's configured default when ``corpus`` is
+        ``None``. Raises :class:`oneo.corpus.CorpusConfigError` when no
+        corpus can be resolved."""
+
+        name = corpus if corpus is not None else self._registry.default_name()
+        self._registry.get(name)  # validates the name is registered
+        return name
+
+    def _resolve_corpus_root(
+        self, corpus: str | None, input_path: str | None
+    ) -> tuple[str, str]:
+        """Resolve the effective corpus root for ``corpus`` and the
+        effective ``input_path`` to scan/parse within it.
+
+        When ``input_path`` is ``None``, it defaults to the corpus's
+        root; when given, it is still validated against that root by
+        the downstream discovery/loader calls.
+        """
+
+        name = self._resolve_corpus_name(corpus)
+        root = self._registry.get(name).root
+        effective_input_path = input_path if input_path is not None else root
+        return root, effective_input_path
 
     def _graph_store(self) -> Neo4jStore:
         return Neo4jStore(
@@ -68,25 +113,35 @@ class Oneo:
         with self._graph_store() as store:
             return store.health()
 
-    def discover(self, input_path: str | None = None) -> list[str]:
+    def discover(
+        self, input_path: str | None = None, corpus: str | None = None
+    ) -> list[str]:
         """Discover supported OKF source files under ``input_path``.
 
         Args:
-            input_path: Directory to scan. Defaults to the configured
-                knowledge root.
+            input_path: Directory to scan. When omitted, defaults to
+                the selected corpus's root. Still used as (or
+                validated against) the trusted root boundary for
+                path-security validation -- there is no implicit
+                global root, only the selected corpus's root (see
+                :mod:`oneo.corpus`).
+            corpus: Name of the corpus to select. When ``None``, the
+                registry's configured default corpus is used.
 
         Returns:
             A sorted list of root-relative source paths.
         """
 
-        target = input_path if input_path is not None else self._settings.knowledge_root
+        root, effective_input_path = self._resolve_corpus_root(corpus, input_path)
         return discover_files(
-            input_path=target,
-            knowledge_root=self._settings.knowledge_root,
+            input_path=effective_input_path,
+            corpus_root=root,
             exclude_patterns=self._settings.exclude_patterns,
         )
 
-    def parse(self, input_path: str) -> list[ParsedDocument]:
+    def parse(
+        self, input_path: str | None = None, corpus: str | None = None
+    ) -> list[ParsedDocument]:
         """Parse every discovered OKF document under ``input_path``.
 
         Delegates discovery to :func:`oneo.discovery.discover_files` and
@@ -94,15 +149,21 @@ class Oneo:
         validation and link resolution are added in a later step.
         """
 
+        root, effective_input_path = self._resolve_corpus_root(corpus, input_path)
         source_paths = discover_files(
-            input_path=input_path,
-            knowledge_root=self._settings.knowledge_root,
+            input_path=effective_input_path,
+            corpus_root=root,
             exclude_patterns=self._settings.exclude_patterns,
         )
-        loader = OkfLoader(knowledge_root=self._settings.knowledge_root)
+        loader = OkfLoader(corpus_root=root)
         return [loader.load(source_path) for source_path in source_paths]
 
-    def validate(self, input_path: str, strict: bool = False) -> ValidationResult:
+    def validate(
+        self,
+        input_path: str | None = None,
+        strict: bool = False,
+        corpus: str | None = None,
+    ) -> ValidationResult:
         """Validate the OKF corpus under ``input_path``.
 
         Parses every discovered document and checks required
@@ -112,11 +173,15 @@ class Oneo:
         set of diagnostic codes. No Neo4j writes occur here.
         """
 
-        documents = self.parse(input_path)
+        documents = self.parse(input_path, corpus=corpus)
         return validate_corpus(documents, strict=strict)
 
     def index(
-        self, input_path: str, rebuild: bool = True, embeddings: bool = True
+        self,
+        input_path: str | None = None,
+        rebuild: bool = True,
+        embeddings: bool = True,
+        corpus: str | None = None,
     ) -> IndexSummary:
         """Index the OKF corpus under ``input_path`` into Neo4j.
 
@@ -134,7 +199,8 @@ class Oneo:
         embedding generation entirely.
         """
 
-        documents = self.parse(input_path)
+        corpus_name = self._resolve_corpus_name(corpus)
+        documents = self.parse(input_path, corpus=corpus_name)
         resolved_links = resolve_links(documents)
         all_sections = [
             section for parsed in documents for section in parsed.sections
@@ -142,16 +208,18 @@ class Oneo:
 
         with self._graph_store() as store:
             if rebuild:
-                store.reset()
+                store.reset(corpus_name)
             store.apply_schema()
-            store.write_documents([parsed.document for parsed in documents])
-            store.write_sections(all_sections)
-            store.write_links(resolved_links)
+            store.write_documents(
+                [parsed.document for parsed in documents], corpus_name
+            )
+            store.write_sections(all_sections, corpus_name)
+            store.write_links(resolved_links, corpus_name)
             store.wait_for_fulltext_index_online()
-            self._wait_for_fulltext_queryable(store, all_sections)
+            self._wait_for_fulltext_queryable(store, all_sections, corpus_name)
 
             if embeddings:
-                self._generate_embeddings(store, documents)
+                self._generate_embeddings(store, documents, corpus_name)
 
         return IndexSummary(
             documents=len(documents),
@@ -161,7 +229,7 @@ class Oneo:
 
     @staticmethod
     def _wait_for_fulltext_queryable(
-        store: Neo4jStore, sections: list[OkfSection]
+        store: Neo4jStore, sections: list[OkfSection], corpus: str
     ) -> None:
         """Probe the real full-text query path for a just-written
         section, in addition to trusting ``SHOW INDEXES`` state (see
@@ -179,11 +247,13 @@ class Oneo:
             if not probe_term:
                 continue
             sample_query = " ".join(probe_term)
-            store.wait_for_fulltext_index_queryable(sample_query, section.section_id)
+            store.wait_for_fulltext_index_queryable(
+                sample_query, section.section_id, corpus
+            )
             return
 
     def _generate_embeddings(
-        self, store: Neo4jStore, documents: list[ParsedDocument]
+        self, store: Neo4jStore, documents: list[ParsedDocument], corpus: str
     ) -> None:
         """Re-embed every stale or missing section and (re-)create the
         vector index. Raises on any embedding batch failure, reporting
@@ -211,6 +281,7 @@ class Oneo:
             model_name=embedder.MODEL_NAME,
             dimensions=embedder.DIMENSIONS,
             input_hashes=input_hashes,
+            corpus=corpus,
         )
 
         sample_row: dict[str, Any] | None = None
@@ -237,7 +308,7 @@ class Oneo:
                 }
                 for section_id, vector in zip(batch_ids, batch_vectors)
             ]
-            store.write_embeddings(rows)
+            store.write_embeddings(rows, corpus)
             if rows:
                 sample_row = rows[-1]
 
@@ -250,7 +321,7 @@ class Oneo:
 
         if sample_row is not None:
             queryable = store.wait_for_vector_index_queryable(
-                sample_row["embedding"], sample_row["section_id"]
+                sample_row["embedding"], sample_row["section_id"], corpus
             )
             if not queryable:
                 raise RuntimeError(
@@ -258,16 +329,15 @@ class Oneo:
                     f"for section {sample_row['section_id']!r}"
                 )
 
-    def verify(self, input_path: str | None = None) -> VerificationResult:
+    def verify(
+        self, input_path: str | None = None, corpus: str | None = None
+    ) -> VerificationResult:
         """Compare the filesystem corpus under ``input_path`` against
         the graph index and report any discrepancy.
-
-        Defaults to the configured knowledge root when ``input_path``
-        is omitted.
         """
 
-        target = input_path if input_path is not None else self._settings.knowledge_root
-        documents = self.parse(target)
+        corpus_name = self._resolve_corpus_name(corpus)
+        documents = self.parse(input_path, corpus=corpus_name)
         resolved_links = resolve_links(documents)
 
         fs_document_ids = sorted(parsed.document.document_id for parsed in documents)
@@ -275,9 +345,9 @@ class Oneo:
         fs_link_count = len(resolved_links)
 
         with self._graph_store() as store:
-            graph_documents = store.list_documents()
-            graph_section_count = store.count_sections()
-            graph_link_count = store.count_links()
+            graph_documents = store.list_documents(corpus_name)
+            graph_section_count = store.count_sections(corpus_name)
+            graph_link_count = store.count_links(corpus_name)
 
         graph_document_ids = sorted(document.document_id for document in graph_documents)
 
@@ -306,23 +376,34 @@ class Oneo:
             links=graph_link_count,
         )
 
-    def vector_search(self, query: str, top_k: int = 5) -> tuple[SectionMatch, ...]:
+    def vector_search(
+        self, query: str, top_k: int = 5, corpus: str | None = None
+    ) -> tuple[SectionMatch, ...]:
         """Run a raw vector-similarity search over indexed sections.
 
         This is a narrow, read-only diagnostic exception to the fixed
         coordinator surface -- like ``verify`` -- added so embedding
         generation can be validated end-to-end before hybrid retrieval
         (rank fusion, graph expansion) is implemented in Step 6.
+
+        ``corpus`` is resolved against the registry (falling back to
+        its configured default) and used to filter results to that
+        corpus.
         """
 
+        corpus_name = self._resolve_corpus_name(corpus)
         embedder = SectionEmbedder()
         query_embedding = list(embedder.embed_query(query))
         with self._graph_store() as store:
-            matches = store.vector_search(query_embedding, top_k)
+            matches = store.vector_search(query_embedding, top_k, corpus_name)
         return tuple(matches)
 
     def retrieve(
-        self, query: str, top_k: int | None = None, expand: bool = False
+        self,
+        query: str,
+        top_k: int | None = None,
+        expand: bool = False,
+        corpus: str | None = None,
     ) -> RetrievalResult:
         """Run hybrid retrieval: query the Neo4j vector index and the
         Neo4j full-text index, fuse both ranked lists with weighted
@@ -336,16 +417,26 @@ class Oneo:
         by anchor, relevance, or first-section fallback, weighted by
         ``graph_expansion_weight``. Answer generation (Step 8) is not
         part of this method.
+
+        ``corpus`` is resolved against the registry (falling back to
+        its configured default) and used to filter every vector,
+        full-text, and graph-expansion lookup to that corpus, so
+        expansion can never surface a section from another corpus.
         """
 
+        corpus_name = self._resolve_corpus_name(corpus)
         resolved_top_k = top_k if top_k is not None else self._settings.retrieval_top_k
 
         embedder = SectionEmbedder()
         query_embedding = list(embedder.embed_query(query))
 
         with self._graph_store() as store:
-            vector_matches = list(store.vector_search(query_embedding, resolved_top_k))
-            lexical_matches = list(store.fulltext_search(query, resolved_top_k))
+            vector_matches = list(
+                store.vector_search(query_embedding, resolved_top_k, corpus_name)
+            )
+            lexical_matches = list(
+                store.fulltext_search(query, resolved_top_k, corpus_name)
+            )
 
             hits = fuse_rankings(
                 vector_matches,
@@ -361,7 +452,9 @@ class Oneo:
                 seed_document_ids = sorted(
                     {hit.document_id for hit in seed_hits}
                 )
-                edge_rows = store.expand_neighbors(seed_document_ids)
+                edge_rows = store.expand_neighbors(
+                    seed_document_ids, hops=1, corpus=corpus_name
+                )
                 links = [LinkedDocument(**row) for row in edge_rows]
 
                 candidates: dict[str, tuple[SectionMatch, str]] = {}
@@ -373,16 +466,23 @@ class Oneo:
                     strategy = ""
                     if link.target_anchor:
                         match = store.section_by_anchor(
-                            link.neighbor_document_id, link.target_anchor
+                            link.neighbor_document_id,
+                            link.target_anchor,
+                            corpus_name,
                         )
                         strategy = "anchor"
                     if match is None:
                         match = store.best_section_in_document(
-                            link.neighbor_document_id, query_embedding, query
+                            link.neighbor_document_id,
+                            query_embedding,
+                            query,
+                            corpus_name,
                         )
                         strategy = "relevance"
                     if match is None:
-                        match = store.first_section(link.neighbor_document_id)
+                        match = store.first_section(
+                            link.neighbor_document_id, corpus_name
+                        )
                         strategy = "first-section"
 
                     if match is not None:
@@ -403,7 +503,11 @@ class Oneo:
         )
 
     def query(
-        self, query: str, top_k: int | None = None, expand: bool = True
+        self,
+        query: str,
+        top_k: int | None = None,
+        expand: bool = True,
+        corpus: str | None = None,
     ) -> AnswerResult:
         """Generate a grounded answer for ``query``.
 
@@ -413,15 +517,22 @@ class Oneo:
         :func:`oneo.answering.generate_answer`. When no chat model was
         injected at construction time, retrieval still runs and an
         explicit insufficient-evidence result is returned.
+
+        ``corpus`` is resolved against the registry (falling back to
+        its configured default) and threaded through both
+        :meth:`retrieve` (so every seed and expanded hit belongs to
+        that corpus) and the ``get_section_texts`` lookup below, so
+        every citation resolves within the selected corpus.
         """
 
-        retrieval = self.retrieve(query, top_k=top_k, expand=expand)
+        corpus_name = self._resolve_corpus_name(corpus)
+        retrieval = self.retrieve(query, top_k=top_k, expand=expand, corpus=corpus_name)
 
         section_ids = [hit.section_id for hit in retrieval.hits] + [
             hit.section_id for hit in retrieval.expanded_hits
         ]
         with self._graph_store() as store:
-            section_texts = store.get_section_texts(section_ids)
+            section_texts = store.get_section_texts(section_ids, corpus_name)
 
         return generate_answer(
             query,
@@ -432,8 +543,14 @@ class Oneo:
             min_vector_score=self._settings.answer_min_vector_score,
         )
 
-    def reset(self) -> None:
-        """Delete only the Neo4j data owned by this index."""
+    def reset(self, corpus: str | None = None) -> None:
+        """Delete only the Neo4j data owned by this index and scoped
+        to the selected corpus.
 
+        ``corpus`` is resolved against the registry (falling back to
+        its configured default).
+        """
+
+        corpus_name = self._resolve_corpus_name(corpus)
         with self._graph_store() as store:
-            store.reset()
+            store.reset(corpus_name)

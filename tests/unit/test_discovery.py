@@ -20,7 +20,7 @@ def test_discovers_only_supported_markdown_files(tmp_path):
 
     discovered = discover_files(
         input_path=str(tmp_path),
-        knowledge_root=str(tmp_path),
+        corpus_root=str(tmp_path),
         exclude_patterns=(".git",),
     )
 
@@ -30,8 +30,8 @@ def test_discovers_only_supported_markdown_files(tmp_path):
 def test_discovery_is_deterministic(tmp_path):
     _make_corpus(tmp_path)
 
-    first = discover_files(input_path=str(tmp_path), knowledge_root=str(tmp_path))
-    second = discover_files(input_path=str(tmp_path), knowledge_root=str(tmp_path))
+    first = discover_files(input_path=str(tmp_path), corpus_root=str(tmp_path))
+    second = discover_files(input_path=str(tmp_path), corpus_root=str(tmp_path))
 
     assert first == second
     assert first == sorted(first)
@@ -39,7 +39,7 @@ def test_discovery_is_deterministic(tmp_path):
 
 def test_missing_directory_returns_empty_list(tmp_path):
     discovered = discover_files(
-        input_path=str(tmp_path / "missing"), knowledge_root=str(tmp_path)
+        input_path=str(tmp_path / "missing"), corpus_root=str(tmp_path)
     )
 
     assert discovered == []
@@ -49,4 +49,4 @@ def test_rejects_parent_traversal(tmp_path):
     _make_corpus(tmp_path)
 
     with pytest.raises(PathSecurityError):
-        discover_files(input_path=str(tmp_path.parent), knowledge_root=str(tmp_path))
+        discover_files(input_path=str(tmp_path.parent), corpus_root=str(tmp_path))

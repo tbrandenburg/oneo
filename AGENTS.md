@@ -2,41 +2,42 @@
 
 ## Purpose
 
-Oneo indexes an Open Knowledge Format (OKF) repository into Neo4j and
-uses the resulting graph for hybrid and graph-enhanced retrieval. The
-OKF filesystem is the canonical source of truth; Neo4j is a derived
-index that must be fully reproducible from the filesystem at any time.
-Oneo combines OKF-aware parsing, explicit document relationships, Neo4j
-graph projection, vector retrieval, full-text retrieval, rank fusion,
-graph expansion, and grounded answer generation into one small,
-understandable pipeline.
-
-> **Direction of travel:** Oneo is moving from a single-corpus tool to a
-> small, serious **multi-corpus** OKF index (several named OKF bundles,
-> each rooted at its own directory, sharing one Neo4j database and scoped
-> by a `corpus` property). See `doc/plan/plan.md` for the authoritative
-> target design. This `AGENTS.md` still describes the current
-> single-corpus code and is reframed to the multi-corpus model only as
-> each implementation step makes those statements true — where this file
-> and the plan disagree on *intent*, the plan wins; where they disagree
-> on *how existing unchanged code behaves*, this file wins.
+Oneo indexes one or more Open Knowledge Format (OKF) repositories —
+**corpuses** — into a single shared Neo4j database and uses the
+resulting graph for hybrid and graph-enhanced retrieval, one corpus at a
+time. Each corpus is a named OKF bundle rooted at its own directory,
+registered in `corpuses.toml`; the corpus is the unit of ingestion,
+retrieval, and reset. Every OKF filesystem bundle is the canonical
+source of truth for its own corpus; Neo4j is a derived index that must
+be fully reproducible, per corpus, from that corpus's filesystem at any
+time. Oneo combines OKF-aware parsing, explicit document relationships,
+corpus-scoped Neo4j graph projection, vector retrieval, full-text
+retrieval, rank fusion, graph expansion, and grounded answer generation
+into one small, understandable pipeline.
 
 ## Goals
 
-- Index an OKF repository without manual preprocessing.
-- Preserve document identities, headings, metadata, anchors, and links.
+- Register and index multiple named OKF corpuses without manual
+  preprocessing, each independently rebuildable from its own filesystem
+  root.
+- Preserve document identities, headings, metadata, anchors, and links,
+  scoped per corpus.
 - Project OKF documents and sections into Neo4j as first-class nodes and
-  relationships.
-- Store section embeddings directly in Neo4j and support vector search.
-- Support Neo4j full-text search alongside vector search.
+  relationships, tagged with the owning corpus.
+- Store section embeddings directly in Neo4j and support vector search
+  scoped to one corpus at a time.
+- Support Neo4j full-text search alongside vector search, scoped to one
+  corpus at a time.
 - Combine vector and lexical retrieval using explicit, explainable rank
   fusion.
-- Expand retrieval context through one-hop document relationships.
-- Generate answers grounded only in retrieved OKF content, with citations
-  that resolve to indexed sections.
-- Fully rebuild the derived Neo4j index from the filesystem at any time.
+- Expand retrieval context through one-hop document relationships within
+  the selected corpus only.
+- Generate answers grounded only in retrieved OKF content from the
+  selected corpus, with citations that resolve to indexed sections.
+- Fully rebuild any single corpus's derived Neo4j index from its
+  filesystem at any time, without touching any other corpus.
 - Provide a single executable demo script that runs the complete
-  pipeline from a clean checkout.
+  pipeline against multiple corpuses from a clean checkout.
 
 ## Non-Goals
 
@@ -52,9 +53,10 @@ understandable pipeline.
 - Production authentication, authorization, or high-availability
   deployment.
 - Distributed ingestion, automated retrieval tuning, or multi-tenant
-  indexing (isolated, access-controlled tenants). Indexing several named
-  OKF corpuses for a single operator is a planned capability, not a
-  non-goal — see `doc/plan/plan.md`.
+  indexing (isolated, access-controlled tenants). Indexing **multiple
+  corpuses is supported and native** — a single operator registers and
+  queries several named OKF corpuses side by side; only isolated,
+  access-controlled *tenants* are the non-goal, not multiple corpuses.
 - Generic plugin infrastructure or dynamic pipeline composition.
 - Support for arbitrary document schemas beyond OKF.
 
@@ -79,17 +81,22 @@ understandable pipeline.
   functions.
 - All ingest paths must be validated against a configured knowledge root;
   reject path traversal, unrelated absolute paths, and remote URLs.
+- A corpus is the unit of ingestion, retrieval, and reset; `document_id`
+  is corpus-scoped (the corpus name plus the bundle-relative path), so
+  identical relative paths in two corpuses never collide.
 - The embedding model is fixed to
   `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions, cosine
   similarity) and must not be made configurable.
 - Document ID = bundle-relative file path with the Markdown suffix
   removed; section ID = document ID + normalized heading path + section
   ordinal. Content hashes are never used as identities.
-- Key pitfall: when validating an ingest path against the knowledge root,
+- Key pitfall: when validating an ingest path against the corpus root,
   resolve relative paths against the current working directory (not
-  against the knowledge root itself) before checking containment —
-  otherwise a CLI argument that already equals the knowledge root (e.g.
-  `oneo files ./knowledge` when `ONEO_KNOWLEDGE_ROOT=./knowledge`) gets
+  against the corpus root itself) before checking containment —
+  otherwise a CLI argument that already equals the corpus root (e.g.
+  `oneo files ./knowledge` when the corpus config's root was also
+  `./knowledge`, from the legacy single-corpus env var predating
+  per-corpus `--corpus` selection) gets
   incorrectly double-joined and fails to resolve.
 - Typer command handlers can be unit-tested without a live Neo4j instance by
   monkeypatching the module-level `_build_coordinator` seam in `cli.py` to
@@ -284,13 +291,14 @@ understandable pipeline.
   ~0.7–0.85 vs. ~0.45–0.5 for unrelated queries); a seed hit with no vector
   score at all (lexical-only) must not be treated as relevant by default.
 - `Neo4jStore.reset()` deletes all `index_owner="oneo"` data globally,
-  regardless of which `knowledge_root`/`Settings` produced it. Integration
-  tests that index a `tmp_path` fixture corpus and call
-  `coordinator.reset()` in a `finally` block will also delete the real
-  `./knowledge` demo index if it was indexed in the same Neo4j database —
-  always re-run `oneo index ./knowledge` after running the test suite
-  before manually validating `oneo query`/`oneo retrieve` against the demo
-  corpus.
+  regardless of which `Settings` produced it. Integration tests that
+  index a `tmp_path` fixture corpus and call `coordinator.reset()` in a
+  `finally` block will also delete the demo corpuses' indexes if they
+  were indexed in the same Neo4j database — always re-run
+  `uv run oneo index --corpus billing --rebuild` and
+  `uv run oneo index --corpus engineering --rebuild` after running the
+  test suite before manually validating `oneo query`/`oneo retrieve`
+  against the demo corpuses.
 
 ## Key Pitfalls
 
@@ -322,3 +330,26 @@ understandable pipeline.
   with a wider `top_k` (e.g. 10) while still requiring the exact known
   section ID to appear is necessary for the probe itself to be
   reliable under load, not just a longer timeout.
+- Removing the single global `knowledge-root` setting (multi-corpus Step 1)
+  breaks `Oneo.discover`/`parse`/`index`/`verify` if they still read that
+  removed settings field as the trusted root passed to
+  `discover_files`/`OkfLoader`, since the field no longer exists — but
+  full corpus-root threading is deliberately deferred to Step 2. The
+   transitional fix is to pass the caller-supplied `input_path` itself as
+   both the scan target and the root argument (now named `corpus_root`)
+   for these calls, making each invocation self-contained instead of
+   validated against a separate configured boundary, until Step 2 replaces
+   it with the corpus's registered root.
+- Neo4j integration/E2E tests that assert an exact node count via an
+  unscoped Cypher query (e.g. `MATCH (s:OkfSection) RETURN ...` with no
+  `{corpus: $corpus}` filter) are only correct by coincidence when the
+  shared Neo4j database happens to hold exactly one corpus's data. Once
+  `./scripts/demo.sh` became a normal part of the workflow and started
+  leaving multiple demo corpuses (`billing`, `engineering`) indexed as
+  its steady-state artifact, such unscoped assertions began failing
+  deterministically (e.g. `assert len(records) == 2` seeing 12 rows)
+  any time the full test suite ran without first resetting the demo
+  corpuses. Every test that counts or enumerates graph nodes/edges by
+  label alone must filter by `corpus` (or by `index_owner` plus a
+  corpus-scoped property) to stay correct regardless of what else is
+  indexed in the shared database at the time.

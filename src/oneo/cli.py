@@ -15,16 +15,54 @@ import typer
 
 from oneo.answering import ExtractiveChatModel
 from oneo.config import load_settings
+from oneo.corpus import CorpusConfigError, CorpusRegistry
 from oneo.okf_loader import corpus_to_dict
 from oneo.pipeline import Oneo
 from oneo.security import PathSecurityError
 
-app = typer.Typer(help="Oneo: OKF-to-Neo4j graph retrieval proof of concept.")
+app = typer.Typer(help="Oneo: OKF-to-Neo4j multi-corpus graph retrieval.")
+corpus_app = typer.Typer(help="Inspect the configured corpus registry.")
+app.add_typer(corpus_app, name="corpus")
+
+
+def _build_registry() -> CorpusRegistry:
+    settings = load_settings()
+    return CorpusRegistry.load(settings.corpus_config, settings.default_corpus)
 
 
 def _build_coordinator(with_chat_model: bool = False) -> Oneo:
     chat_model = ExtractiveChatModel() if with_chat_model else None
     return Oneo(load_settings(), chat_model=chat_model)
+
+
+@corpus_app.command("list")
+def corpus_list() -> None:
+    """List every configured corpus and its filesystem root."""
+
+    try:
+        registry = _build_registry()
+    except CorpusConfigError as exc:
+        typer.echo(f"corpus configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    for name in registry.names():
+        corpus = registry.get(name)
+        typer.echo(f"{corpus.name} {corpus.root}")
+
+
+@corpus_app.command("info")
+def corpus_info(name: str = typer.Argument(..., help="Corpus name.")) -> None:
+    """Print one corpus's name, resolved root, and whether it exists."""
+
+    try:
+        registry = _build_registry()
+        corpus = registry.get(name)
+    except CorpusConfigError as exc:
+        typer.echo(f"corpus configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    root_path = Path(corpus.root).expanduser().resolve()
+    typer.echo(f"name={corpus.name} root={corpus.root} exists={root_path.exists()}")
 
 
 @app.command()
@@ -45,13 +83,20 @@ def health() -> None:
 
 
 @app.command()
-def files(input_path: str = typer.Argument(..., help="Directory to scan.")) -> None:
+def files(
+    input_path: str = typer.Argument(
+        None, help="Directory to scan. Defaults to the selected corpus's root."
+    ),
+    corpus: str = typer.Option(
+        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+    ),
+) -> None:
     """List supported OKF source files under INPUT_PATH."""
 
     coordinator = _build_coordinator()
     try:
-        discovered = coordinator.discover(input_path)
-    except PathSecurityError as exc:
+        discovered = coordinator.discover(input_path, corpus=corpus)
+    except (PathSecurityError, CorpusConfigError) as exc:
         typer.echo(f"rejected: {exc}")
         raise typer.Exit(code=1) from exc
 
@@ -61,17 +106,22 @@ def files(input_path: str = typer.Argument(..., help="Directory to scan.")) -> N
 
 @app.command()
 def parse(
-    input_path: str = typer.Argument(..., help="Directory to parse."),
+    input_path: str = typer.Argument(
+        None, help="Directory to parse. Defaults to the selected corpus's root."
+    ),
     output: str = typer.Option(
         ..., "--output", help="Path to write the normalized corpus JSON."
+    ),
+    corpus: str = typer.Option(
+        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
     ),
 ) -> None:
     """Parse OKF documents under INPUT_PATH into a normalized corpus JSON file."""
 
     coordinator = _build_coordinator()
     try:
-        documents = coordinator.parse(input_path)
-    except PathSecurityError as exc:
+        documents = coordinator.parse(input_path, corpus=corpus)
+    except (PathSecurityError, CorpusConfigError) as exc:
         typer.echo(f"rejected: {exc}")
         raise typer.Exit(code=1) from exc
 
@@ -84,17 +134,22 @@ def parse(
 
 @app.command()
 def validate(
-    input_path: str = typer.Argument(..., help="Directory to validate."),
+    input_path: str = typer.Argument(
+        None, help="Directory to validate. Defaults to the selected corpus's root."
+    ),
     strict: bool = typer.Option(
         False, "--strict", help="Fail on unresolved links/anchors and duplicate IDs."
+    ),
+    corpus: str = typer.Option(
+        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
     ),
 ) -> None:
     """Validate the OKF corpus under INPUT_PATH without writing to Neo4j."""
 
     coordinator = _build_coordinator()
     try:
-        result = coordinator.validate(input_path, strict=strict)
-    except PathSecurityError as exc:
+        result = coordinator.validate(input_path, strict=strict, corpus=corpus)
+    except (PathSecurityError, CorpusConfigError) as exc:
         typer.echo(f"rejected: {exc}")
         raise typer.Exit(code=1) from exc
 
@@ -120,7 +175,9 @@ def validate(
 
 @app.command()
 def index(
-    input_path: str = typer.Argument(..., help="Directory to index."),
+    input_path: str = typer.Argument(
+        None, help="Directory to index. Defaults to the selected corpus's root."
+    ),
     no_embeddings: bool = typer.Option(
         False,
         "--no-embeddings",
@@ -131,15 +188,18 @@ def index(
         "--rebuild/--no-rebuild",
         help="Reset the owned graph index before writing.",
     ),
+    corpus: str = typer.Option(
+        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+    ),
 ) -> None:
     """Index the OKF corpus under INPUT_PATH into Neo4j."""
 
     coordinator = _build_coordinator()
     try:
         summary = coordinator.index(
-            input_path, rebuild=rebuild, embeddings=not no_embeddings
+            input_path, rebuild=rebuild, embeddings=not no_embeddings, corpus=corpus
         )
-    except PathSecurityError as exc:
+    except (PathSecurityError, CorpusConfigError) as exc:
         typer.echo(f"rejected: {exc}")
         raise typer.Exit(code=1) from exc
     except NotImplementedError as exc:
@@ -156,13 +216,16 @@ def index(
 def vector_search(
     query: str = typer.Argument(..., help="Natural-language query to embed and search."),
     top_k: int = typer.Option(5, "--top-k", help="Number of results to return."),
+    corpus: str = typer.Option(
+        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+    ),
 ) -> None:
     """Run a raw vector-similarity search over indexed OKF sections."""
 
     coordinator = _build_coordinator()
     try:
-        matches = coordinator.vector_search(query, top_k=top_k)
-    except PathSecurityError as exc:
+        matches = coordinator.vector_search(query, top_k=top_k, corpus=corpus)
+    except (PathSecurityError, CorpusConfigError) as exc:
         typer.echo(f"rejected: {exc}")
         raise typer.Exit(code=1) from exc
 
@@ -187,6 +250,9 @@ def retrieve(
     explain: bool = typer.Option(
         False, "--explain", help="Print per-hit ranking diagnostics."
     ),
+    corpus: str = typer.Option(
+        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+    ),
 ) -> None:
     """Run hybrid retrieval (vector + full-text with rank fusion), optionally
     followed by one-hop graph expansion."""
@@ -199,8 +265,10 @@ def retrieve(
 
     coordinator = _build_coordinator()
     try:
-        result = coordinator.retrieve(query, top_k=top_k, expand=mode == "graph-hybrid")
-    except PathSecurityError as exc:
+        result = coordinator.retrieve(
+            query, top_k=top_k, expand=mode == "graph-hybrid", corpus=corpus
+        )
+    except (PathSecurityError, CorpusConfigError) as exc:
         typer.echo(f"rejected: {exc}")
         raise typer.Exit(code=1) from exc
 
@@ -248,6 +316,9 @@ def query(
     show_paths: bool = typer.Option(
         False, "--show-paths", help="Print graph paths for cited graph-expanded sections."
     ),
+    corpus: str = typer.Option(
+        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+    ),
 ) -> None:
     """Generate a grounded answer with citations from hybrid (optionally
     graph-expanded) retrieval."""
@@ -260,8 +331,10 @@ def query(
 
     coordinator = _build_coordinator(with_chat_model=True)
     try:
-        result = coordinator.query(query, top_k=top_k, expand=mode == "graph-hybrid")
-    except PathSecurityError as exc:
+        result = coordinator.query(
+            query, top_k=top_k, expand=mode == "graph-hybrid", corpus=corpus
+        )
+    except (PathSecurityError, CorpusConfigError) as exc:
         typer.echo(f"rejected: {exc}")
         raise typer.Exit(code=1) from exc
 
@@ -292,26 +365,37 @@ def query(
 
 
 @app.command()
-def reset() -> None:
+def reset(
+    corpus: str = typer.Option(
+        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+    ),
+) -> None:
     """Delete only the Neo4j data owned by this index."""
 
     coordinator = _build_coordinator()
-    coordinator.reset()
+    try:
+        coordinator.reset(corpus=corpus)
+    except CorpusConfigError as exc:
+        typer.echo(f"rejected: {exc}")
+        raise typer.Exit(code=1) from exc
     typer.echo("reset complete")
 
 
 @app.command()
 def verify(
     input_path: str = typer.Argument(
-        None, help="Directory to verify. Defaults to the knowledge root."
+        None, help="Directory to verify. Defaults to the selected corpus's root."
+    ),
+    corpus: str = typer.Option(
+        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
     ),
 ) -> None:
     """Compare the filesystem corpus against the graph index."""
 
     coordinator = _build_coordinator()
     try:
-        result = coordinator.verify(input_path)
-    except PathSecurityError as exc:
+        result = coordinator.verify(input_path, corpus=corpus)
+    except (PathSecurityError, CorpusConfigError) as exc:
         typer.echo(f"rejected: {exc}")
         raise typer.Exit(code=1) from exc
 

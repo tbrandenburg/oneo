@@ -1,0 +1,59 @@
+[2026-07-23 14:38:16.386] == Starting Neo4j ==
+ Network oneo_default  Creating
+ Network oneo_default  Created
+ Volume oneo_oneo-neo4j-data  Creating
+ Volume oneo_oneo-neo4j-data  Created
+ Container oneo-neo4j  Creating
+ Container oneo-neo4j  Created
+ Container oneo-neo4j  Starting
+ Container oneo-neo4j  Started
+[2026-07-23 14:38:17.309] == Waiting for Neo4j readiness ==
+[2026-07-23 14:38:52.959] == Health check ==
+connected to database 'neo4j' (server: Neo4j/5.26.28)
+[2026-07-23 14:38:53.677] == Registered corpuses ==
+billing ./corpuses/billing
+engineering ./corpuses/engineering
+[2026-07-23 14:38:54.395] == [billing] Filesystem security ==
+[2026-07-23 14:38:55.031] == [billing] OKF validation ==
+0 diagnostic(s)
+[2026-07-23 14:38:55.716] == [billing] Resetting derived index ==
+reset complete
+[2026-07-23 14:38:57.102] == [billing] Indexing (schema, documents, sections, links, embeddings) ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1089.29it/s]
+indexed 6 document(s), 6 section(s), 2 link(s)
+[2026-07-23 14:39:15.002] == [billing] Hybrid retrieval ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1032.15it/s]
+[2026-07-23 14:39:28.424] == [billing] Graph expansion ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights:  64%|██████▍   | 66/103 [00:00<00:00, 658.39it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 779.96it/s]
+[2026-07-23 14:39:42.043] == [billing] Grounded answer generation ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1177.28it/s]
+[2026-07-23 14:39:55.521] Corpus billing: indexed, retrieval PASS, query PASS
+[2026-07-23 14:39:55.523] == [engineering] Filesystem security ==
+[2026-07-23 14:39:56.229] == [engineering] OKF validation ==
+0 diagnostic(s)
+[2026-07-23 14:39:56.850] == [engineering] Resetting derived index ==
+reset complete
+[2026-07-23 14:39:57.639] == [engineering] Indexing (schema, documents, sections, links, embeddings) ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1084.22it/s]
+indexed 4 document(s), 4 section(s), 2 link(s)
+[2026-07-23 14:40:11.910] == [engineering] Hybrid retrieval ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights:  89%|████████▉ | 92/103 [00:00<00:00, 918.85it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1018.37it/s]
+[2026-07-23 14:40:24.529] == [engineering] Graph expansion ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights:  81%|████████  | 83/103 [00:00<00:00, 825.83it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 986.87it/s]
+[2026-07-23 14:40:38.181] == [engineering] Grounded answer generation ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1240.30it/s]
+[2026-07-23 14:40:51.200] Corpus engineering: indexed, retrieval PASS, query PASS
+[2026-07-23 14:40:51.202] == Rebuild-from-filesystem (per corpus) ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1031.93it/s]
+[2026-07-23 14:41:06.602] Rebuild-from-filesystem [billing]: PASS
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1147.75it/s]
+[2026-07-23 14:41:21.500] Rebuild-from-filesystem [engineering]: PASS
+[2026-07-23 14:41:21.502] == Corpus isolation check ==
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights:  96%|█████████▌| 99/103 [00:00<00:00, 987.70it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1017.97it/s]
+[2026-07-23 14:41:35.859] Corpus isolation: PASS
+
+[2026-07-23 14:41:35.861] Corpus billing: indexed, retrieval PASS, query PASS
+[2026-07-23 14:41:35.863] Corpus engineering: indexed, retrieval PASS, query PASS
+[2026-07-23 14:41:35.865] Corpus isolation: PASS
+[2026-07-23 14:41:35.867] Rebuild-from-filesystem (per corpus): PASS
+[2026-07-23 14:41:35.869] Multi-corpus status: SUCCESS
