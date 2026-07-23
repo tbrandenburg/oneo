@@ -7,8 +7,16 @@ import pytest
 
 from oneo.answering import ExtractiveChatModel
 from oneo.config import Settings
+from oneo.corpus import Corpus, CorpusRegistry
 from oneo.neo4j_store import Neo4jStore
 from oneo.pipeline import Oneo
+
+
+def _registry_for(root) -> CorpusRegistry:
+    """Build a single-corpus registry fixture rooted at ``root``, used in
+    place of the removed global ``Settings(knowledge_root=...)``."""
+
+    return CorpusRegistry({"test": Corpus(name="test", root=str(root))}, "test")
 
 
 def test_discover_returns_sorted_supported_files(tmp_path):
@@ -18,8 +26,8 @@ def test_discover_returns_sorted_supported_files(tmp_path):
     (root / "topics" / "example.markdown").write_text("# Example\n")
     (root / "ignored.txt").write_text("not markdown\n")
 
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     discovered = coordinator.discover(str(root))
 
@@ -36,8 +44,8 @@ def test_parse_loads_every_discovered_document(tmp_path):
         "---\ntitle: Example\n---\n\n# Example\n\nMore text.\n"
     )
 
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     parsed = coordinator.parse(str(root))
 
@@ -52,8 +60,8 @@ def test_validate_reports_unresolved_link_in_permissive_mode(tmp_path):
         "---\ntitle: Doc\ntype: concept\n---\n\n# Doc\n\n[broken](missing.md)\n"
     )
 
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     result = coordinator.validate(str(root))
 
@@ -67,8 +75,8 @@ def test_validate_fails_strict_on_unresolved_link(tmp_path):
         "---\ntitle: Doc\ntype: concept\n---\n\n# Doc\n\n[broken](missing.md)\n"
     )
 
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     result = coordinator.validate(str(root), strict=True)
 
@@ -82,8 +90,8 @@ def test_validate_passes_strict_on_corrected_corpus(tmp_path):
     )
     (root / "other.md").write_text("---\ntitle: Other\ntype: concept\n---\n\n# Other\n\nBody.\n")
 
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     result = coordinator.validate(str(root), strict=True)
 
@@ -131,8 +139,8 @@ def _make_corpus(root):
 def test_index_writes_documents_sections_and_links(tmp_path):
     root = tmp_path
     _make_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         summary = coordinator.index(str(root), rebuild=True, embeddings=False)
@@ -148,8 +156,8 @@ def test_index_writes_documents_sections_and_links(tmp_path):
 def test_index_is_idempotent_across_repeated_runs(tmp_path):
     root = tmp_path
     _make_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=False)
@@ -166,8 +174,8 @@ def test_index_is_idempotent_across_repeated_runs(tmp_path):
 def test_verify_reports_ok_after_index(tmp_path):
     root = tmp_path
     _make_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=False)
@@ -186,8 +194,8 @@ def test_verify_reports_ok_after_index(tmp_path):
 def test_verify_reports_issue_when_graph_is_stale(tmp_path):
     root = tmp_path
     _make_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=False)
@@ -207,8 +215,8 @@ def test_verify_reports_issue_when_graph_is_stale(tmp_path):
 def test_index_with_embeddings_generates_vectors(tmp_path):
     root = tmp_path
     _make_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         summary = coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -245,8 +253,8 @@ def test_index_with_embeddings_generates_vectors(tmp_path):
 def test_vector_search_returns_indexed_section(tmp_path):
     root = tmp_path
     _make_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -265,8 +273,8 @@ def test_vector_search_returns_indexed_section(tmp_path):
 def test_reindex_skips_unchanged_section_embeddings(tmp_path):
     root = tmp_path
     _make_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -310,8 +318,8 @@ def test_reindex_skips_unchanged_section_embeddings(tmp_path):
 def test_reset_removes_only_owned_data(tmp_path):
     root = tmp_path
     _make_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     coordinator.index(str(root), rebuild=True, embeddings=False)
     coordinator.reset()
@@ -356,8 +364,8 @@ def _make_retrieval_corpus(root):
 def test_retrieve_returns_fused_hits_with_no_duplicate_sections(tmp_path):
     root = tmp_path
     _make_retrieval_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -382,8 +390,8 @@ def test_retrieve_returns_fused_hits_with_no_duplicate_sections(tmp_path):
 def test_retrieve_keyword_heavy_query_surfaces_lexical_match(tmp_path):
     root = tmp_path
     _make_retrieval_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -404,8 +412,8 @@ def test_retrieve_keyword_heavy_query_surfaces_lexical_match(tmp_path):
 def test_retrieve_paraphrased_query_surfaces_vector_match(tmp_path):
     root = tmp_path
     _make_retrieval_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -424,8 +432,8 @@ def test_retrieve_paraphrased_query_surfaces_vector_match(tmp_path):
 def test_retrieve_repeated_queries_produce_stable_ordering(tmp_path):
     root = tmp_path
     _make_retrieval_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -468,8 +476,8 @@ def _make_graph_expansion_corpus(root):
 def test_retrieve_graph_hybrid_expands_linked_document(tmp_path):
     root = tmp_path
     _make_graph_expansion_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -502,8 +510,8 @@ def test_retrieve_graph_hybrid_expands_linked_document(tmp_path):
 def test_retrieve_hybrid_mode_does_not_expand(tmp_path):
     root = tmp_path
     _make_graph_expansion_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -519,10 +527,8 @@ def test_retrieve_hybrid_mode_does_not_expand(tmp_path):
 def test_retrieve_graph_hybrid_enforces_max_expanded_results(tmp_path):
     root = tmp_path
     _make_graph_expansion_corpus(root)
-    settings = Settings(
-        knowledge_root=str(root), graph_expansion_max_results=1
-    )
-    coordinator = Oneo(settings)
+    settings = Settings(graph_expansion_max_results=1)
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -538,8 +544,8 @@ def test_retrieve_graph_hybrid_enforces_max_expanded_results(tmp_path):
 def test_query_without_chat_model_returns_insufficient_evidence(tmp_path):
     root = tmp_path
     _make_retrieval_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -557,8 +563,8 @@ def test_query_without_chat_model_returns_insufficient_evidence(tmp_path):
 def test_query_generates_grounded_answer_with_valid_citations(tmp_path):
     root = tmp_path
     _make_retrieval_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings, chat_model=ExtractiveChatModel())
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root), chat_model=ExtractiveChatModel())
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -578,8 +584,8 @@ def test_query_generates_grounded_answer_with_valid_citations(tmp_path):
 def test_query_unanswerable_question_returns_insufficient_evidence(tmp_path):
     root = tmp_path
     _make_retrieval_corpus(root)
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings, chat_model=ExtractiveChatModel())
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root), chat_model=ExtractiveChatModel())
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)
@@ -613,8 +619,8 @@ def test_query_graph_hybrid_cites_expanded_document(tmp_path):
         "one-hop graph expansion through link traversal, with wording kept "
         "far removed from subscriptions, payments, or accounts.\n"
     )
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings, chat_model=ExtractiveChatModel())
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root), chat_model=ExtractiveChatModel())
 
     try:
         coordinator.index(str(root), rebuild=True, embeddings=True)

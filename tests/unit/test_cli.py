@@ -67,42 +67,42 @@ class _FakeCoordinator:
     def health(self):
         return self._health_status
 
-    def discover(self, input_path: str):
+    def discover(self, input_path: str | None = None, corpus: str | None = None):
         if self._discover_error is not None:
             raise self._discover_error
         return self._discovered
 
-    def parse(self, input_path: str):
+    def parse(self, input_path: str | None = None, corpus: str | None = None):
         if self._parse_error is not None:
             raise self._parse_error
         return self._parsed
 
-    def validate(self, input_path: str, strict: bool = False):
+    def validate(self, input_path: str | None = None, strict: bool = False, corpus: str | None = None):
         if self._validate_error is not None:
             raise self._validate_error
         return self._validation_result
 
-    def index(self, input_path: str, rebuild: bool = True, embeddings: bool = True):
+    def index(self, input_path: str | None = None, rebuild: bool = True, embeddings: bool = True, corpus: str | None = None):
         if self._index_error is not None:
             raise self._index_error
         return self._index_summary
 
-    def verify(self, input_path: str | None = None):
+    def verify(self, input_path: str | None = None, corpus: str | None = None):
         if self._verify_error is not None:
             raise self._verify_error
         return self._verification_result
 
-    def reset(self):
+    def reset(self, corpus: str | None = None):
         if self._reset_error is not None:
             raise self._reset_error
         self.reset_called = True
 
-    def retrieve(self, query: str, top_k: int | None = None, expand: bool = False):
+    def retrieve(self, query: str, top_k: int | None = None, expand: bool = False, corpus: str | None = None):
         if self._retrieve_error is not None:
             raise self._retrieve_error
         return self._retrieval_result
 
-    def query(self, query: str, top_k: int | None = None, expand: bool = True):
+    def query(self, query: str, top_k: int | None = None, expand: bool = True, corpus: str | None = None):
         if self._query_error is not None:
             raise self._query_error
         return self._query_result

@@ -11,8 +11,16 @@ from __future__ import annotations
 import pytest
 
 from oneo.config import Settings
+from oneo.corpus import Corpus, CorpusRegistry
 from oneo.neo4j_store import Neo4jStore
 from oneo.pipeline import Oneo
+
+
+def _registry_for(root) -> CorpusRegistry:
+    """Build a single-corpus registry fixture rooted at ``root``, used in
+    place of the removed global ``Settings(knowledge_root=...)``."""
+
+    return CorpusRegistry({"test": Corpus(name="test", root=str(root))}, "test")
 
 NEO4J_URI = "bolt://localhost:7687"
 NEO4J_USERNAME = "neo4j"
@@ -70,8 +78,8 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         "Unrelated notes about seasonal weather patterns.\n"
     )
 
-    settings = Settings(knowledge_root=str(root))
-    coordinator = Oneo(settings)
+    settings = Settings()
+    coordinator = Oneo(settings, registry=_registry_for(root))
 
     unrelated_marker_id = "unrelated-marker-doc"
 
