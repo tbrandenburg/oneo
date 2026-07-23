@@ -409,6 +409,40 @@ def verify(
         raise typer.Exit(code=1)
 
 
+@app.command()
+def mcp(
+    transport: str = typer.Option(
+        "stdio",
+        "--transport",
+        help="Transport: 'stdio' (default, agent-spawned) or 'streamable-http'.",
+    ),
+    host: str = typer.Option(
+        "127.0.0.1", "--host", help="Bind host (streamable-http only)."
+    ),
+    port: int = typer.Option(8765, "--port", help="Bind port (streamable-http only)."),
+) -> None:
+    """Run the Oneo MCP server (agent interface)."""
+
+    if transport not in ("stdio", "streamable-http"):
+        typer.echo(
+            f"unsupported transport: {transport!r} (only 'stdio' and "
+            "'streamable-http' are implemented)"
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        from oneo.mcp_server import run_mcp_server
+    except ModuleNotFoundError as exc:
+        typer.echo(
+            "the 'mcp' package is required for this command; install "
+            "with: uv pip install 'oneo[mcp]'"
+        )
+        raise typer.Exit(code=1) from exc
+
+    kwargs = {"host": host, "port": port} if transport == "streamable-http" else {}
+    run_mcp_server(transport=transport, **kwargs)
+
+
 def main() -> None:
     """Entry point for the ``oneo`` console script."""
 
