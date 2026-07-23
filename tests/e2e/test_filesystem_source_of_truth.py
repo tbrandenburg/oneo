@@ -58,8 +58,9 @@ def _make_store() -> Neo4jStore:
 
 def _section_embedding_hashes(store: Neo4jStore) -> dict[str, str]:
     records = store._run(
-        "MATCH (s:OkfSection) RETURN s.section_id AS section_id, "
-        "s.embedding_input_hash AS embedding_input_hash"
+        "MATCH (s:OkfSection {corpus: $corpus}) RETURN s.section_id AS section_id, "
+        "s.embedding_input_hash AS embedding_input_hash",
+        corpus="test",
     )
     return {record["section_id"]: record["embedding_input_hash"] for record in records}
 
@@ -165,7 +166,8 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         with _make_store() as store:
             final_export = store.export_graph("test")
             final_texts = store._run(
-                "MATCH (s:OkfSection) RETURN s.document_id AS document_id"
+                "MATCH (s:OkfSection {corpus: $corpus}) RETURN s.document_id AS document_id",
+                corpus="test",
             )
 
         final_document_ids = {d["document_id"] for d in final_export["documents"]}
@@ -181,8 +183,9 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         # its vectors are gone (no remaining section belongs to "other")
         with _make_store() as store:
             remaining_embeddings = store._run(
-                "MATCH (s:OkfSection) WHERE s.document_id = 'other' "
-                "RETURN s.embedding AS embedding"
+                "MATCH (s:OkfSection {corpus: $corpus}) WHERE s.document_id = 'other' "
+                "RETURN s.embedding AS embedding",
+                corpus="test",
             )
         assert remaining_embeddings == []
 

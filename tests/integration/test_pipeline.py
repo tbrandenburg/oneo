@@ -231,10 +231,11 @@ def test_index_with_embeddings_generates_vectors(tmp_path):
             database=NEO4J_DATABASE,
         ) as store:
             records = store._run(
-                "MATCH (s:OkfSection) RETURN s.embedding AS embedding, "
+                "MATCH (s:OkfSection {corpus: $corpus}) RETURN s.embedding AS embedding, "
                 "s.embedding_model AS embedding_model, "
                 "s.embedding_dimensions AS embedding_dimensions, "
-                "s.embedding_input_hash AS embedding_input_hash"
+                "s.embedding_input_hash AS embedding_input_hash",
+                corpus="test",
             )
             assert len(records) == 2
             for record in records:
@@ -288,8 +289,9 @@ def test_reindex_skips_unchanged_section_embeddings(tmp_path):
             first_hashes = {
                 record["section_id"]: record["embedding_input_hash"]
                 for record in store._run(
-                    "MATCH (s:OkfSection) RETURN s.section_id AS section_id, "
-                    "s.embedding_input_hash AS embedding_input_hash"
+                    "MATCH (s:OkfSection {corpus: $corpus}) RETURN s.section_id AS section_id, "
+                    "s.embedding_input_hash AS embedding_input_hash",
+                    corpus="test",
                 )
             }
 
@@ -304,8 +306,9 @@ def test_reindex_skips_unchanged_section_embeddings(tmp_path):
             second_hashes = {
                 record["section_id"]: record["embedding_input_hash"]
                 for record in store._run(
-                    "MATCH (s:OkfSection) RETURN s.section_id AS section_id, "
-                    "s.embedding_input_hash AS embedding_input_hash"
+                    "MATCH (s:OkfSection {corpus: $corpus}) RETURN s.section_id AS section_id, "
+                    "s.embedding_input_hash AS embedding_input_hash",
+                    corpus="test",
                 )
             }
 

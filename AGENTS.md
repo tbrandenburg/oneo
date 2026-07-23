@@ -293,10 +293,12 @@ into one small, understandable pipeline.
 - `Neo4jStore.reset()` deletes all `index_owner="oneo"` data globally,
   regardless of which `Settings` produced it. Integration tests that
   index a `tmp_path` fixture corpus and call `coordinator.reset()` in a
-  `finally` block will also delete the real `./knowledge` demo index if
-  it was indexed in the same Neo4j database — always re-run `oneo index
-  ./knowledge` after running the test suite before manually validating
-  `oneo query`/`oneo retrieve` against the demo corpus.
+  `finally` block will also delete the demo corpuses' indexes if they
+  were indexed in the same Neo4j database — always re-run
+  `uv run oneo index --corpus billing --rebuild` and
+  `uv run oneo index --corpus engineering --rebuild` after running the
+  test suite before manually validating `oneo query`/`oneo retrieve`
+  against the demo corpuses.
 
 ## Key Pitfalls
 
@@ -333,8 +335,21 @@ into one small, understandable pipeline.
   removed settings field as the trusted root passed to
   `discover_files`/`OkfLoader`, since the field no longer exists — but
   full corpus-root threading is deliberately deferred to Step 2. The
-  transitional fix is to pass the caller-supplied `input_path` itself as
-  both the scan target and the root argument (now named `corpus_root`)
-  for these calls, making each invocation self-contained instead of
-  validated against a separate configured boundary, until Step 2 replaces
-  it with the corpus's registered root.
+   transitional fix is to pass the caller-supplied `input_path` itself as
+   both the scan target and the root argument (now named `corpus_root`)
+   for these calls, making each invocation self-contained instead of
+   validated against a separate configured boundary, until Step 2 replaces
+   it with the corpus's registered root.
+- Neo4j integration/E2E tests that assert an exact node count via an
+  unscoped Cypher query (e.g. `MATCH (s:OkfSection) RETURN ...` with no
+  `{corpus: $corpus}` filter) are only correct by coincidence when the
+  shared Neo4j database happens to hold exactly one corpus's data. Once
+  `./scripts/demo.sh` became a normal part of the workflow and started
+  leaving multiple demo corpuses (`billing`, `engineering`) indexed as
+  its steady-state artifact, such unscoped assertions began failing
+  deterministically (e.g. `assert len(records) == 2` seeing 12 rows)
+  any time the full test suite ran without first resetting the demo
+  corpuses. Every test that counts or enumerates graph nodes/edges by
+  label alone must filter by `corpus` (or by `index_owner` plus a
+  corpus-scoped property) to stay correct regardless of what else is
+  indexed in the shared database at the time.
