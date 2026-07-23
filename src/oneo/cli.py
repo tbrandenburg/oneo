@@ -15,16 +15,54 @@ import typer
 
 from oneo.answering import ExtractiveChatModel
 from oneo.config import load_settings
+from oneo.corpus import CorpusConfigError, CorpusRegistry
 from oneo.okf_loader import corpus_to_dict
 from oneo.pipeline import Oneo
 from oneo.security import PathSecurityError
 
-app = typer.Typer(help="Oneo: OKF-to-Neo4j graph retrieval proof of concept.")
+app = typer.Typer(help="Oneo: OKF-to-Neo4j multi-corpus graph retrieval.")
+corpus_app = typer.Typer(help="Inspect the configured corpus registry.")
+app.add_typer(corpus_app, name="corpus")
+
+
+def _build_registry() -> CorpusRegistry:
+    settings = load_settings()
+    return CorpusRegistry.load(settings.corpus_config, settings.default_corpus)
 
 
 def _build_coordinator(with_chat_model: bool = False) -> Oneo:
     chat_model = ExtractiveChatModel() if with_chat_model else None
     return Oneo(load_settings(), chat_model=chat_model)
+
+
+@corpus_app.command("list")
+def corpus_list() -> None:
+    """List every configured corpus and its filesystem root."""
+
+    try:
+        registry = _build_registry()
+    except CorpusConfigError as exc:
+        typer.echo(f"corpus configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    for name in registry.names():
+        corpus = registry.get(name)
+        typer.echo(f"{corpus.name} {corpus.root}")
+
+
+@corpus_app.command("info")
+def corpus_info(name: str = typer.Argument(..., help="Corpus name.")) -> None:
+    """Print one corpus's name, resolved root, and whether it exists."""
+
+    try:
+        registry = _build_registry()
+        corpus = registry.get(name)
+    except CorpusConfigError as exc:
+        typer.echo(f"corpus configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    root_path = Path(corpus.root).expanduser().resolve()
+    typer.echo(f"name={corpus.name} root={corpus.root} exists={root_path.exists()}")
 
 
 @app.command()
@@ -302,9 +340,7 @@ def reset() -> None:
 
 @app.command()
 def verify(
-    input_path: str = typer.Argument(
-        None, help="Directory to verify. Defaults to the knowledge root."
-    ),
+    input_path: str = typer.Argument(..., help="Directory to verify."),
 ) -> None:
     """Compare the filesystem corpus against the graph index."""
 

@@ -347,7 +347,7 @@ def test_verify_reports_ok(monkeypatch):
         lambda **_: _FakeCoordinator(verification_result=verification_result),
     )
 
-    result = runner.invoke(cli.app, ["verify"])
+    result = runner.invoke(cli.app, ["verify", "./somewhere"])
 
     assert result.exit_code == 0
     assert "documents=2 sections=2 links=1" in result.output
@@ -367,7 +367,7 @@ def test_verify_exits_non_zero_on_issue(monkeypatch):
         lambda **_: _FakeCoordinator(verification_result=verification_result),
     )
 
-    result = runner.invoke(cli.app, ["verify"])
+    result = runner.invoke(cli.app, ["verify", "./somewhere"])
 
     assert result.exit_code == 1
     assert "[issue]" in result.output
@@ -681,3 +681,52 @@ def test_query_rejects_path_security_error(monkeypatch):
 
     assert result.exit_code == 1
     assert "rejected:" in result.output
+
+
+def test_corpus_list_prints_names_and_roots(monkeypatch, tmp_path):
+    config_path = tmp_path / "corpuses.toml"
+    config_path.write_text(
+        '[corpuses.billing]\nroot = "./corpuses/billing"\n'
+        '[corpuses.engineering]\nroot = "./corpuses/engineering"\n'
+    )
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(config_path))
+
+    result = runner.invoke(cli.app, ["corpus", "list"])
+
+    assert result.exit_code == 0
+    assert "billing ./corpuses/billing" in result.output
+    assert "engineering ./corpuses/engineering" in result.output
+
+
+def test_corpus_info_reports_existing_root(monkeypatch, tmp_path):
+    root = tmp_path / "billing"
+    root.mkdir()
+    config_path = tmp_path / "corpuses.toml"
+    config_path.write_text(f'[corpuses.billing]\nroot = "{root}"\n')
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(config_path))
+
+    result = runner.invoke(cli.app, ["corpus", "info", "billing"])
+
+    assert result.exit_code == 0
+    assert "name=billing" in result.output
+    assert "exists=True" in result.output
+
+
+def test_corpus_info_unknown_name_exits_non_zero(monkeypatch, tmp_path):
+    config_path = tmp_path / "corpuses.toml"
+    config_path.write_text('[corpuses.billing]\nroot = "./corpuses/billing"\n')
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(config_path))
+
+    result = runner.invoke(cli.app, ["corpus", "info", "unknown"])
+
+    assert result.exit_code == 1
+    assert "corpus configuration error" in result.output
+
+
+def test_corpus_list_missing_config_exits_non_zero(monkeypatch, tmp_path):
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(tmp_path / "missing.toml"))
+
+    result = runner.invoke(cli.app, ["corpus", "list"])
+
+    assert result.exit_code == 1
+    assert "corpus configuration error" in result.output

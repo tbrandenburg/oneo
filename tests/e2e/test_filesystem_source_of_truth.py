@@ -165,7 +165,7 @@ def test_filesystem_first_rebuild_semantics(tmp_path):
         assert "overview" in final_document_ids
 
         # deleted files do not remain discoverable
-        assert "other.md" not in coordinator.discover()
+        assert "other.md" not in coordinator.discover(str(root))
 
         # its section nodes are gone
         assert all(row["document_id"] != "other" for row in final_texts)

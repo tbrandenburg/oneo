@@ -1,0 +1,5 @@
+[corpuses.billing]
+root = "./corpuses/billing"
+
+[corpuses.engineering]
+root = "./corpuses/engineering"

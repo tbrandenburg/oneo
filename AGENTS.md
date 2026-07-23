@@ -322,3 +322,13 @@ understandable pipeline.
   with a wider `top_k` (e.g. 10) while still requiring the exact known
   section ID to appear is necessary for the probe itself to be
   reliable under load, not just a longer timeout.
+- Removing the single global `knowledge_root` setting (multi-corpus Step 1)
+  breaks `Oneo.discover`/`parse`/`index`/`verify` if they still read
+  `self._settings.knowledge_root` as the trusted root passed to
+  `discover_files`/`OkfLoader`, since that field no longer exists — but
+  full corpus-root threading is deliberately deferred to Step 2. The
+  transitional fix is to pass the caller-supplied `input_path` itself as
+  both the scan target and the root argument (`knowledge_root=input_path`)
+  for these calls, making each invocation self-contained instead of
+  validated against a separate configured boundary, until Step 2 replaces
+  it with the corpus's registered root.

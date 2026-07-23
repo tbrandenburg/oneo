@@ -21,7 +21,7 @@ def test_discover_returns_sorted_supported_files(tmp_path):
     settings = Settings(knowledge_root=str(root))
     coordinator = Oneo(settings)
 
-    discovered = coordinator.discover()
+    discovered = coordinator.discover(str(root))
 
     assert discovered == ["overview.md", "topics/example.markdown"]
 

@@ -68,21 +68,21 @@ class Oneo:
         with self._graph_store() as store:
             return store.health()
 
-    def discover(self, input_path: str | None = None) -> list[str]:
+    def discover(self, input_path: str) -> list[str]:
         """Discover supported OKF source files under ``input_path``.
 
         Args:
-            input_path: Directory to scan. Defaults to the configured
-                knowledge root.
+            input_path: Directory to scan. Also used as the trusted
+                root boundary for path-security validation (there is
+                no implicit global root -- see :mod:`oneo.corpus`).
 
         Returns:
             A sorted list of root-relative source paths.
         """
 
-        target = input_path if input_path is not None else self._settings.knowledge_root
         return discover_files(
-            input_path=target,
-            knowledge_root=self._settings.knowledge_root,
+            input_path=input_path,
+            knowledge_root=input_path,
             exclude_patterns=self._settings.exclude_patterns,
         )
 
@@ -96,10 +96,10 @@ class Oneo:
 
         source_paths = discover_files(
             input_path=input_path,
-            knowledge_root=self._settings.knowledge_root,
+            knowledge_root=input_path,
             exclude_patterns=self._settings.exclude_patterns,
         )
-        loader = OkfLoader(knowledge_root=self._settings.knowledge_root)
+        loader = OkfLoader(knowledge_root=input_path)
         return [loader.load(source_path) for source_path in source_paths]
 
     def validate(self, input_path: str, strict: bool = False) -> ValidationResult:
@@ -258,16 +258,12 @@ class Oneo:
                     f"for section {sample_row['section_id']!r}"
                 )
 
-    def verify(self, input_path: str | None = None) -> VerificationResult:
+    def verify(self, input_path: str) -> VerificationResult:
         """Compare the filesystem corpus under ``input_path`` against
         the graph index and report any discrepancy.
-
-        Defaults to the configured knowledge root when ``input_path``
-        is omitted.
         """
 
-        target = input_path if input_path is not None else self._settings.knowledge_root
-        documents = self.parse(target)
+        documents = self.parse(input_path)
         resolved_links = resolve_links(documents)
 
         fs_document_ids = sorted(parsed.document.document_id for parsed in documents)
