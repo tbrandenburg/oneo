@@ -8,6 +8,7 @@ corpuses.toml
 build/
 .ghar/
 .flowsh/
+dev/
 
 # User
 /factory_v2.sh
