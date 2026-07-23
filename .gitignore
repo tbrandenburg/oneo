@@ -6,6 +6,8 @@ __pycache__/
 .env
 corpuses.toml
 build/
+.ghar/
+.flowsh/
 
 # User
 /factory_v2.sh

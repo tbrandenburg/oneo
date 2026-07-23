@@ -11,7 +11,6 @@ from oneo.models import (
     Diagnostic,
     GraphExpandedHit,
     HealthStatus,
-    IndexedDocument,
     IndexSummary,
     OkfDocument,
     ParsedDocument,
@@ -1014,3 +1013,28 @@ def test_verify_omits_corpus_flag_defaults_to_none(monkeypatch):
 
     assert result.exit_code == 0
     assert coordinator.received_corpus["verify"] is None
+
+
+def test_mcp_rejects_unsupported_transport():
+    result = runner.invoke(cli.app, ["mcp", "--transport", "sse"])
+
+    assert result.exit_code == 1
+    assert "unsupported transport" in result.output
+
+
+def test_mcp_reports_missing_dependency_cleanly(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _fake_import(name, *args, **kwargs):
+        if name == "oneo.mcp_server":
+            raise ModuleNotFoundError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+
+    result = runner.invoke(cli.app, ["mcp"])
+
+    assert result.exit_code == 1
+    assert "oneo[mcp]" in result.output

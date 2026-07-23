@@ -48,7 +48,10 @@ into one small, understandable pipeline.
 - LLM-based graph extraction.
 - Filesystem watching, incremental ingestion, or remote URL ingestion.
 - An in-memory, corpus-wide BM25 index.
-- A web interface or MCP integration.
+- A general web interface. MCP over stdio (default) and loopback-by-default
+  `streamable-http` are in scope as the agent-native retrieval interface
+  (`oneo mcp`); non-loopback exposure and authentication remain out of
+  scope (see `oneo mcp --help`).
 - RDF projection.
 - Production authentication, authorization, or high-availability
   deployment.

@@ -91,6 +91,24 @@ A `Makefile` wraps the common commands (`make up`, `make validate`,
 `make test`, `make demo`, `make publish BUMP=patch|minor|major`; run
 `make help` for the full list).
 
+## Agent interface (`oneo mcp`)
+
+```bash
+# Run the MCP server over stdio (default; agent-spawned, no network listener)
+uv run oneo mcp
+
+# Or over a loopback-only HTTP endpoint
+uv run oneo mcp --transport streamable-http --port 8765
+```
+
+Requires the optional `mcp` dependency group: `uv pip install 'oneo[mcp]'`.
+Exposes exactly two tools to an MCP host (e.g. Claude Desktop, opencode):
+`oneo_ask` (a grounded answer plus citations for one corpus) and
+`oneo_list_corpuses` (discovery of registered corpuses). Write operations
+(`index`, `reset`) stay CLI-only. `streamable-http` binds `127.0.0.1` by
+default; no authentication is provided, so exposing it beyond loopback is
+the caller's explicit responsibility.
+
 ## Releasing
 
 ```bash
@@ -132,7 +150,7 @@ Oneo is a small, deliberately scoped multi-corpus index, not a
 general-purpose retrieval framework. Notably out of scope: general
 document conversion (PDF/DOCX/PPTX), a second vector database or
 datastore, filesystem watching or incremental ingestion, remote URL
-ingestion, a web interface or MCP integration, RDF projection,
+ingestion, a general web interface, RDF projection,
 cross-corpus/federated retrieval, and production authentication/
 authorization. See `AGENTS.md` for the full list of goals, non-goals,
 and constraints.
