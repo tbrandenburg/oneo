@@ -69,7 +69,15 @@ class SectionEmbedder:
         # embedder is actually constructed.
         from sentence_transformers import SentenceTransformer
 
-        self._model = SentenceTransformer(self.MODEL_NAME)
+        # Prefer the already-cached checkpoint and skip the HF Hub
+        # network round-trip that otherwise happens on every
+        # construction. A cache miss (fresh clone/CI with no cache
+        # yet) raises OSError, in which case we fall back to a normal,
+        # network-allowed construction.
+        try:
+            self._model = SentenceTransformer(self.MODEL_NAME, local_files_only=True)
+        except OSError:
+            self._model = SentenceTransformer(self.MODEL_NAME)
 
     def embed_sections(self, texts: Sequence[str]) -> Sequence[Sequence[float]]:
         """Embed a batch of section input texts, using the fixed batch

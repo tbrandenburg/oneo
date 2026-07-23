@@ -60,6 +60,19 @@ class Oneo:
         self._settings = settings
         self._registry_override = registry
         self._chat_model = chat_model
+        self._embedder_override: SectionEmbedder | None = None
+
+    @property
+    def _embedder(self) -> SectionEmbedder:
+        """Return the section embedder, constructing it once per
+        coordinator instance on first use so repeated pipeline calls
+        (``_generate_embeddings``, ``vector_search``, ``retrieve``)
+        reuse the same loaded model instead of each reconstructing
+        one independently."""
+
+        if self._embedder_override is None:
+            self._embedder_override = SectionEmbedder()
+        return self._embedder_override
 
     @property
     def _registry(self) -> CorpusRegistry:
@@ -259,7 +272,7 @@ class Oneo:
         vector index. Raises on any embedding batch failure, reporting
         the affected section IDs."""
 
-        embedder = SectionEmbedder()
+        embedder = self._embedder
 
         inputs_by_section_id: dict[str, str] = {}
         titles_by_document_id = {
@@ -392,7 +405,7 @@ class Oneo:
         """
 
         corpus_name = self._resolve_corpus_name(corpus)
-        embedder = SectionEmbedder()
+        embedder = self._embedder
         query_embedding = list(embedder.embed_query(query))
         with self._graph_store() as store:
             matches = store.vector_search(query_embedding, top_k, corpus_name)
@@ -427,7 +440,7 @@ class Oneo:
         corpus_name = self._resolve_corpus_name(corpus)
         resolved_top_k = top_k if top_k is not None else self._settings.retrieval_top_k
 
-        embedder = SectionEmbedder()
+        embedder = self._embedder
         query_embedding = list(embedder.embed_query(query))
 
         with self._graph_store() as store:
