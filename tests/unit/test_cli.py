@@ -11,7 +11,6 @@ from oneo.models import (
     Diagnostic,
     GraphExpandedHit,
     HealthStatus,
-    IndexedDocument,
     IndexSummary,
     OkfDocument,
     ParsedDocument,
