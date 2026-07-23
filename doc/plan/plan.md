@@ -660,11 +660,21 @@ so that reset and rebuild operate on exactly one corpus.
    once (not per corpus) and are unaffected by corpus scoping.
 8. Thread `corpus` from the coordinator's `index`/`verify`/`reset` into
    every store call.
+9. Route every corpus-scoped read/write/delete through a single internal
+   helper that requires a non-empty `corpus` bind parameter and injects
+   the `AND n.corpus = $corpus` filter itself; no store method may
+   hand-write the corpus filter. The helper raises if `corpus` is missing
+   or empty, so a corpus-scoped query cannot be issued unscoped. This
+   converts corpus isolation from a per-query convention into a
+   structurally enforced guarantee — closing the single-forgotten-filter
+   failure mode, most critically on the destructive `reset` path.
 
 ### Required behavior
 
 * Identical bundle-relative paths in two corpuses produce distinct,
   non-colliding nodes.
+* No corpus-scoped Cypher can execute without a `corpus` bind; a missing
+  corpus is a hard error, not a silent full-graph operation.
 * Indexing corpus A never creates, updates, or deletes any corpus-B
   node, section, vector, or edge.
 * `reset --corpus A` removes only corpus A's owned data.
@@ -914,6 +924,8 @@ This milestone adds, without building a generic harness:
   (no `knowledge_root` fallback)
 * `ONEO_CORPUS_CONFIG` and `ONEO_DEFAULT_CORPUS` resolution
 * per-corpus root resolution and path-security rejection
+* the central corpus-filter helper raising on a missing/empty `corpus`
+  bind (a corpus-scoped query cannot be issued unscoped)
 
 ## Integration tests (real Neo4j)
 
@@ -974,6 +986,8 @@ Reviewers should challenge:
 * cross-corpus links, traversal, or federated retrieval sneaking in
 * a corpus-source abstraction with a single implementation
 * search Cypher missing the `corpus` filter
+* corpus-scoped Cypher that bypasses the central corpus-filter helper and
+  hand-writes (or omits) the `corpus` WHERE clause
 * reset that is not corpus-scoped
 
 ---
