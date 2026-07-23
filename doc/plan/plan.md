@@ -478,8 +478,9 @@ graph or retrieval behavior changes yet.
 4. Validate corpus names against a strict slug pattern
    (`[a-z0-9][a-z0-9-]*`); reject duplicates and empty roots with clear
    errors.
-5. In `config.py`, remove `knowledge_root` and add `ONEO_CORPUS_CONFIG`
-   and an optional `ONEO_DEFAULT_CORPUS` name.
+5. In `config.py`, remove `knowledge_root` — including its field
+   docstring and any prose describing it as the canonical root — and add
+   `ONEO_CORPUS_CONFIG` and an optional `ONEO_DEFAULT_CORPUS` name.
 6. Add a thin `oneo corpus` command group:
 
    * `oneo corpus list` — print each corpus name and root.
@@ -497,6 +498,10 @@ graph or retrieval behavior changes yet.
 9. Remove proof-of-concept framing from the Typer app help,
    `src/oneo/__init__.py`, and `pyproject.toml` description as part of
    this step's surface change (full doc reframing lands in Step 5).
+10. Update `Makefile`: remove the `KNOWLEDGE_ROOT`/`./knowledge` default
+    and help text, and replace the `validate`/`index` targets with
+    corpus-scoped invocations (e.g. `--corpus $(CORPUS)`, with a
+    documented default corpus).
 
 ### Do not implement
 
@@ -576,6 +581,14 @@ registry, without yet changing what is written to or read from Neo4j.
 6. Leave `models.py`, `neo4j_store.py`, retrieval, and answering
    otherwise unchanged in this step (corpus is resolved to a root only,
    not yet persisted).
+7. Migrate every test that constructs `Settings(knowledge_root=...)` to
+   construct a corpus (a registered corpus or an equivalent
+   `Corpus`/`CorpusRegistry` fixture) instead — named explicitly, this
+   includes `tests/integration/test_pipeline.py` (~25 call sites) and
+   `tests/e2e/test_filesystem_source_of_truth.py`. These files break as
+   soon as `knowledge_root` is removed from `config.py` in this step, so
+   their migration is owned here, not deferred to Step 5's general
+   "retarget the pipeline E2E tests" note.
 
 ### Do not implement
 
@@ -846,7 +859,11 @@ Then:
 
     * `README.md` — describe Oneo as a multi-corpus OKF knowledge index;
       remove the "proof of concept, not a production system" framing;
-      document `corpuses.toml`, `--corpus`, and per-corpus rebuild.
+      document `corpuses.toml`, `--corpus`, and per-corpus rebuild;
+      replace every example command that passes `./knowledge` as a
+      positional argument (e.g. `oneo files ./knowledge`, `oneo validate
+      ./knowledge --strict`, `oneo index ./knowledge --rebuild`, `oneo
+      verify ./knowledge`) with an equivalent `--corpus <name>` example.
     * `AGENTS.md` — update Purpose/Goals/Constraints so a corpus is the
       unit of ingestion; make `document_id` = corpus-scoped
       bundle-relative path; keep `multi-tenant` a non-goal but state
@@ -857,6 +874,10 @@ Then:
     * Add `corpuses.toml.example` (and update `.env.example` to drop
       `ONEO_KNOWLEDGE_ROOT`, add `ONEO_CORPUS_CONFIG` /
       `ONEO_DEFAULT_CORPUS`).
+    * Archived material under `doc/plan/steps/archived/oneo-poc/` and
+      `doc/plan/demo/oneo-poc/` is historical record and is explicitly
+      out of scope for this cleanup — do not edit it, and exclude it
+      from the acceptance grep below.
 
 ### Delivery constraints
 
@@ -900,6 +921,9 @@ Validate that:
 * the isolation test passes without any direct database mutation
 * the pre-existing pipeline E2E tests, retargeted to a named corpus,
   still pass (proving the core pipeline is unchanged, only corpus-scoped)
+* a repo-wide grep for `knowledge_root`, `KNOWLEDGE_ROOT`, and
+  `proof of concept`/`PoC`, excluding `doc/plan/steps/archived/` and
+  `doc/plan/demo/`, returns zero matches
 
 ### Completion record
 
