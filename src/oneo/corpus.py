@@ -61,7 +61,7 @@ class CorpusRegistry:
             raise CorpusConfigError(
                 f"corpus configuration file not found: {config_path!r}. "
                 "At least one corpus must be defined in corpuses.toml "
-                "(see corpuses.toml.example); there is no knowledge_root "
+                "(see corpuses.toml.example); there is no corpus_root "
                 "fallback."
             )
 

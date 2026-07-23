@@ -31,15 +31,15 @@ def _is_excluded(relative_path: Path, exclude_patterns: Sequence[str]) -> bool:
 
 def discover_files(
     input_path: str,
-    knowledge_root: str,
+    corpus_root: str,
     exclude_patterns: Sequence[str] = (),
 ) -> list[str]:
     """Recursively discover supported OKF source files.
 
     Args:
         input_path: Directory to scan, relative to or inside
-            ``knowledge_root``.
-        knowledge_root: The configured canonical root directory.
+            ``corpus_root``.
+        corpus_root: The configured canonical root directory.
         exclude_patterns: Glob patterns; matching path segments are
             excluded.
 
@@ -49,11 +49,11 @@ def discover_files(
 
     Raises:
         oneo.security.PathSecurityError: If ``input_path`` violates the
-            knowledge-root boundary.
+            corpus-root boundary.
     """
 
-    root = Path(knowledge_root).expanduser().resolve()
-    scan_root = resolve_within_root(input_path, knowledge_root)
+    root = Path(corpus_root).expanduser().resolve()
+    scan_root = resolve_within_root(input_path, corpus_root)
 
     if not scan_root.exists():
         return []

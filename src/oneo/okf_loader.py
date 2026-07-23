@@ -197,10 +197,10 @@ class OkfLoader:
 
     def __init__(
         self,
-        knowledge_root: str,
+        corpus_root: str,
         max_section_tokens: int = MAX_SECTION_TOKENS,
     ) -> None:
-        self._knowledge_root = knowledge_root
+        self._corpus_root = corpus_root
         self._max_section_tokens = max_section_tokens
 
     def load(self, source_path: str) -> ParsedDocument:
@@ -216,15 +216,15 @@ class OkfLoader:
 
         Raises:
             oneo.security.PathSecurityError: If ``source_path`` violates
-                the knowledge-root boundary.
+                the corpus-root boundary.
         """
 
         # ``source_path`` is root-relative (as returned by
         # ``discover_files``); join it onto the configured root before
         # validating, since ``resolve_within_root`` resolves relative
         # paths against the current working directory, not the root.
-        joined_path = str(Path(self._knowledge_root) / source_path)
-        absolute_path = resolve_within_root(joined_path, self._knowledge_root)
+        joined_path = str(Path(self._corpus_root) / source_path)
+        absolute_path = resolve_within_root(joined_path, self._corpus_root)
         raw_text = absolute_path.read_text(encoding="utf-8")
 
         relative_path = Path(source_path).as_posix()

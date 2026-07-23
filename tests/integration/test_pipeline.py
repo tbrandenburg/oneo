@@ -14,7 +14,7 @@ from oneo.pipeline import Oneo
 
 def _registry_for(root) -> CorpusRegistry:
     """Build a single-corpus registry fixture rooted at ``root``, used in
-    place of the removed global ``Settings(knowledge_root=...)``."""
+    place of the removed global ``Settings(corpus_root=...)``."""
 
     return CorpusRegistry({"test": Corpus(name="test", root=str(root))}, "test")
 

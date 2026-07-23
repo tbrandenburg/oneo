@@ -1,10 +1,12 @@
 # Oneo
 
-Oneo is a proof of concept that indexes an Open Knowledge Format (OKF)
-repository into Neo4j and uses the resulting graph for hybrid and
-graph-enhanced retrieval. The filesystem remains the canonical source of
-truth; Neo4j is a derived index, fully reproducible from the filesystem at
-any time.
+Oneo indexes one or more Open Knowledge Format (OKF) repositories —
+**corpuses** — into a single shared Neo4j database and uses the
+resulting graph for hybrid and graph-enhanced retrieval, one corpus at a
+time. Each corpus is a named OKF bundle rooted at its own directory,
+registered in `corpuses.toml`. The filesystem remains the canonical
+source of truth for each corpus; Neo4j is a derived index, fully
+reproducible from the filesystem at any time, per corpus.
 
 The pipeline covers the full flow end to end: filesystem discovery and
 path-security validation, OKF-aware parsing (frontmatter, headings,
@@ -24,9 +26,26 @@ cp .env.example .env
 docker compose up -d neo4j
 ```
 
-`.env` configures the knowledge root, Neo4j connection, and retrieval
+`.env` configures the corpus registry, Neo4j connection, and retrieval
 tuning parameters (see `src/oneo/config.py` for the full list of
-`ONEO_*` settings).
+`ONEO_*` settings). Corpuses are registered in `corpuses.toml`:
+
+```bash
+cp corpuses.toml.example corpuses.toml
+```
+
+```toml
+# corpuses.toml
+[corpuses.billing]
+root = "./corpuses/billing"
+
+[corpuses.engineering]
+root = "./corpuses/engineering"
+```
+
+`ONEO_DEFAULT_CORPUS` selects which corpus is used when `--corpus` is
+omitted; every corpus-scoped command otherwise requires an explicit
+`--corpus <name>`.
 
 ## Usage
 
@@ -34,33 +53,37 @@ tuning parameters (see `src/oneo/config.py` for the full list of
 # Check Neo4j connectivity
 uv run oneo health
 
-# List discovered OKF source files under a directory
-uv run oneo files ./knowledge
+# List registered corpuses and their filesystem roots
+uv run oneo corpus list
 
-# Parse the corpus into a normalized JSON representation
-uv run oneo parse ./knowledge --output build/corpus.json
+# List discovered OKF source files for a corpus
+uv run oneo files --corpus billing
 
-# Validate the corpus (add --strict to fail on unresolved links/anchors)
-uv run oneo validate ./knowledge --strict
+# Parse a corpus into a normalized JSON representation
+uv run oneo parse --corpus billing --output build/billing.json
 
-# Reset the Neo4j index owned by this pipeline
-uv run oneo reset
+# Validate a corpus (add --strict to fail on unresolved links/anchors)
+uv run oneo validate --corpus billing --strict
 
-# Index the corpus into Neo4j: schema, documents, sections, links, embeddings
-uv run oneo index ./knowledge --rebuild
+# Reset the Neo4j data owned by this index for one corpus
+uv run oneo reset --corpus billing
 
-# Compare the filesystem corpus against the graph index
-uv run oneo verify ./knowledge
+# Index a corpus into Neo4j: schema, documents, sections, links, embeddings
+uv run oneo index --corpus billing --rebuild
 
-# Raw vector-similarity search over indexed sections
-uv run oneo vector-search "How are customers billed?"
+# Compare a corpus's filesystem against its graph index
+uv run oneo verify --corpus billing
 
-# Hybrid retrieval (vector + full-text, rank-fused), optionally with
-# one-hop graph expansion via --mode graph-hybrid
-uv run oneo retrieve "How are customers billed?" --mode hybrid --explain
+# Raw vector-similarity search over one corpus's indexed sections
+uv run oneo vector-search "How are customers billed?" --corpus billing
 
-# Grounded, cited answer generation (defaults to graph-hybrid retrieval)
-uv run oneo query "How are customers billed?" --show-sources --show-paths
+# Hybrid retrieval (vector + full-text, rank-fused) for one corpus,
+# optionally with one-hop graph expansion via --mode graph-hybrid
+uv run oneo retrieve "How are customers billed?" --mode hybrid --corpus billing --explain
+
+# Grounded, cited answer generation for one corpus (defaults to
+# graph-hybrid retrieval)
+uv run oneo query "How are customers billed?" --corpus billing --show-sources --show-paths
 ```
 
 A `Makefile` wraps the common commands (`make up`, `make validate`,
@@ -86,8 +109,10 @@ both, and creates a GitHub release with auto-generated notes.
 ```
 
 Runs the complete pipeline end to end from a clean checkout — starting
-Neo4j, validating the corpus, indexing it, running hybrid retrieval, graph
-expansion, and grounded query generation — and prints a pass/fail summary.
+Neo4j, then for each registered demo corpus (`billing`, `engineering`):
+validating the corpus, indexing it, running hybrid retrieval, graph
+expansion, and grounded query generation — and finally proves corpus
+isolation before printing a pass/fail summary.
 
 ## Tests
 
@@ -98,14 +123,16 @@ uv run pytest
 - `tests/unit` — no external dependencies required.
 - `tests/integration` — require a reachable Neo4j instance
   (`docker compose up -d neo4j`); skipped otherwise.
-- `tests/e2e` — full filesystem-to-graph round trip against a live Neo4j
-  instance.
+- `tests/e2e` — full filesystem-to-graph round trips, including
+  cross-corpus isolation, against a live Neo4j instance.
 
 ## Limitations
 
-This is a proof of concept, not a production system. Notably out of
-scope: general document conversion (PDF/DOCX/PPTX), a second vector
-database or datastore, filesystem watching or incremental ingestion,
-remote URL ingestion, a web interface or MCP integration, RDF projection,
-and production authentication/authorization. See `AGENTS.md` for the full
-list of goals, non-goals, and constraints.
+Oneo is a small, deliberately scoped multi-corpus index, not a
+general-purpose retrieval framework. Notably out of scope: general
+document conversion (PDF/DOCX/PPTX), a second vector database or
+datastore, filesystem watching or incremental ingestion, remote URL
+ingestion, a web interface or MCP integration, RDF projection,
+cross-corpus/federated retrieval, and production authentication/
+authorization. See `AGENTS.md` for the full list of goals, non-goals,
+and constraints.

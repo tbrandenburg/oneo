@@ -86,7 +86,7 @@ class Oneo:
     def _resolve_corpus_root(
         self, corpus: str | None, input_path: str | None
     ) -> tuple[str, str]:
-        """Resolve the effective knowledge root for ``corpus`` and the
+        """Resolve the effective corpus root for ``corpus`` and the
         effective ``input_path`` to scan/parse within it.
 
         When ``input_path`` is ``None``, it defaults to the corpus's
@@ -135,7 +135,7 @@ class Oneo:
         root, effective_input_path = self._resolve_corpus_root(corpus, input_path)
         return discover_files(
             input_path=effective_input_path,
-            knowledge_root=root,
+            corpus_root=root,
             exclude_patterns=self._settings.exclude_patterns,
         )
 
@@ -152,10 +152,10 @@ class Oneo:
         root, effective_input_path = self._resolve_corpus_root(corpus, input_path)
         source_paths = discover_files(
             input_path=effective_input_path,
-            knowledge_root=root,
+            corpus_root=root,
             exclude_patterns=self._settings.exclude_patterns,
         )
-        loader = OkfLoader(knowledge_root=root)
+        loader = OkfLoader(corpus_root=root)
         return [loader.load(source_path) for source_path in source_paths]
 
     def validate(
