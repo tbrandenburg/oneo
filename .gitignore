@@ -9,6 +9,7 @@ build/
 .ghar/
 .flowsh/
 dev/
+logs/
 
 # User
 /factory_v2.sh
