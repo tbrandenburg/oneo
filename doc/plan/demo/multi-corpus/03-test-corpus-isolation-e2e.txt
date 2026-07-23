@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0 -- /home/btr8fe/workspace/tom/oneo/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/btr8fe/workspace/tom/oneo
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.14.2
+collecting ... collected 1 item
+
+tests/e2e/test_corpus_isolation.py::test_corpus_isolation PASSED         [100%]
+
+============================== 1 passed in 34.51s ==============================

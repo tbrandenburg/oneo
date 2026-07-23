@@ -1,0 +1,11 @@
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights:  87%|████████▋ | 90/103 [00:00<00:00, 899.21it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1001.73it/s]
+answer: This document explains how the engineering team deploys and operates [S1]. Release pipelines build, test, and deploy each service revision through [S2]. On-call engineers triage production incidents, coordinate mitigation [S3]. On-call rotations assign a primary and secondary engineer per week, [S4].
+insufficient_evidence: False
+[citation S1] document_id=overview section_id=overview::oneo-engineering-overview::0 heading='Oneo Engineering Overview' source_path=overview.md origin=seed
+[citation S2] document_id=topics/deployment section_id=topics/deployment::release-pipelines::0 heading='Release Pipelines' source_path=topics/deployment.md origin=seed
+[citation S3] document_id=topics/incident-response section_id=topics/incident-response::incident-response::0 heading='Incident Response' source_path=topics/incident-response.md origin=seed
+[citation S4] document_id=topics/oncall section_id=topics/oncall::on-call-rotations::0 heading='On-Call Rotations' source_path=topics/oncall.md origin=seed
+[source] document_id=overview section_id=overview::oneo-engineering-overview::0 source_path=overview.md
+[source] document_id=topics/deployment section_id=topics/deployment::release-pipelines::0 source_path=topics/deployment.md
+[source] document_id=topics/incident-response section_id=topics/incident-response::incident-response::0 source_path=topics/incident-response.md
+[source] document_id=topics/oncall section_id=topics/oncall::on-call-rotations::0 source_path=topics/oncall.md

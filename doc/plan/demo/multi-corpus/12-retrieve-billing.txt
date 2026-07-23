@@ -1,0 +1,9 @@
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 1106.41it/s]
+[seed] document_id=topics/example section_id=topics/example::example-topic::0 heading='Example Topic' fused_score=0.032787 origin=both source_path=topics/example.markdown vector_rank=1 vector_score=0.8376259803771973 lexical_rank=1 lexical_score=1.5938899517059326
+[seed] document_id=topics/billing-c section_id=topics/billing-c::subscription-charges::0 heading='Subscription Charges' fused_score=0.032002 origin=both source_path=topics/billing-c.md vector_rank=2 vector_score=0.7784655094146729 lexical_rank=3 lexical_score=0.6268439888954163
+[seed] document_id=topics/billing-b section_id=topics/billing-b::payment-processing::0 heading='Payment Processing' fused_score=0.031754 origin=both source_path=topics/billing-b.md vector_rank=4 vector_score=0.772362232208252 lexical_rank=2 lexical_score=0.6587775349617004
+[seed] document_id=overview section_id=overview::oneo-knowledge-overview::0 heading='Oneo Knowledge Overview' fused_score=0.031258 origin=both source_path=overview.md vector_rank=3 vector_score=0.7765207290649414 lexical_rank=5 lexical_score=0.5103183388710022
+[seed] document_id=topics/billing-a section_id=topics/billing-a::invoice-generation::0 heading='Invoice Generation' fused_score=0.031010 origin=both source_path=topics/billing-a.md vector_rank=5 vector_score=0.7446250915527344 lexical_rank=4 lexical_score=0.616876482963562
+5 seed result(s)
+[expanded] document_id=topics/related section_id=topics/related::related-topic::0 heading='Related Topic' expansion_score=0.500000 strategy=relevance source_path=topics/related.md graph_path=overview -> LINKS_TO -> topics/related
+1 expanded result(s)
