@@ -54,15 +54,18 @@ class OkfGraphStore(Protocol):
     def wait_for_vector_index_online(
         self, timeout_seconds: float, poll_interval_seconds: float
     ) -> str | None: ...
-    def vector_search(self, embedding: list[float], top_k: int) -> Any: ...
+    def vector_search(
+        self, embedding: list[float], top_k: int, corpus: str
+    ) -> Any: ...
     def wait_for_vector_index_queryable(
         self,
         sample_embedding: list[float],
         sample_section_id: str,
+        corpus: str,
         timeout_seconds: float,
         poll_interval_seconds: float,
     ) -> bool: ...
-    def fulltext_search(self, query: str, top_k: int) -> Any: ...
+    def fulltext_search(self, query: str, top_k: int, corpus: str) -> Any: ...
     def wait_for_fulltext_index_online(
         self, timeout_seconds: float, poll_interval_seconds: float
     ) -> str | None: ...
@@ -70,16 +73,19 @@ class OkfGraphStore(Protocol):
         self,
         sample_query: str,
         sample_section_id: str,
+        corpus: str,
         timeout_seconds: float,
         poll_interval_seconds: float,
     ) -> bool: ...
-    def expand_neighbors(self, document_ids: list[str], hops: int) -> Any: ...
+    def expand_neighbors(
+        self, document_ids: list[str], hops: int, corpus: str
+    ) -> Any: ...
     def section_by_anchor(
-        self, document_id: str, anchor: str
+        self, document_id: str, anchor: str, corpus: str
     ) -> SectionMatch | None: ...
-    def first_section(self, document_id: str) -> SectionMatch | None: ...
+    def first_section(self, document_id: str, corpus: str) -> SectionMatch | None: ...
     def best_section_in_document(
-        self, document_id: str, embedding: list[float], query_text: str
+        self, document_id: str, embedding: list[float], query_text: str, corpus: str
     ) -> SectionMatch | None: ...
     def get_section_texts(
         self, section_ids: list[str], corpus: str
@@ -435,6 +441,7 @@ class Neo4jStore:
         self,
         sample_embedding: list[float],
         sample_section_id: str,
+        corpus: str,
         timeout_seconds: float = 30.0,
         poll_interval_seconds: float = 0.2,
     ) -> bool:
@@ -461,7 +468,7 @@ class Neo4jStore:
 
         deadline = time.monotonic() + timeout_seconds
         while True:
-            matches = self.vector_search(sample_embedding, top_k=10)
+            matches = self.vector_search(sample_embedding, top_k=10, corpus=corpus)
             if any(match.section_id == sample_section_id for match in matches):
                 return True
             if time.monotonic() >= deadline:
@@ -603,9 +610,11 @@ class Neo4jStore:
             "links": [dict(record) for record in link_records],
         }
 
-    def vector_search(self, embedding: list[float], top_k: int) -> list[SectionMatch]:
-        """Vector similarity search over owned ``OkfSection`` nodes
-        using the cosine-similarity vector index.
+    def vector_search(
+        self, embedding: list[float], top_k: int, corpus: str
+    ) -> list[SectionMatch]:
+        """Vector similarity search over owned ``OkfSection`` nodes of
+        ``corpus`` using the cosine-similarity vector index.
 
         Returns an empty result set (rather than raising) when the
         vector index has not been created yet: a missing index means
@@ -624,7 +633,7 @@ class Neo4jStore:
                 f"""
                 CALL db.index.vector.queryNodes('{VECTOR_INDEX_NAME}', $top_k, $embedding)
                 YIELD node, score
-                WHERE node.index_owner = $owner
+                WHERE node.index_owner = $owner AND node.corpus = $corpus
                 RETURN node.section_id AS section_id,
                        node.document_id AS document_id,
                        node.heading AS heading,
@@ -634,6 +643,7 @@ class Neo4jStore:
                 embedding=embedding,
                 top_k=top_k,
                 owner=INDEX_OWNER,
+                corpus=corpus,
             )
         except Neo4jError as exc:
             if "no such vector schema index" in str(exc).lower():
@@ -681,6 +691,7 @@ class Neo4jStore:
         self,
         sample_query: str,
         sample_section_id: str,
+        corpus: str,
         timeout_seconds: float = 30.0,
         poll_interval_seconds: float = 0.2,
     ) -> bool:
@@ -695,22 +706,23 @@ class Neo4jStore:
 
         deadline = time.monotonic() + timeout_seconds
         while True:
-            matches = self.fulltext_search(sample_query, top_k=5)
+            matches = self.fulltext_search(sample_query, top_k=5, corpus=corpus)
             if any(match.section_id == sample_section_id for match in matches):
                 return True
             if time.monotonic() >= deadline:
                 return False
             time.sleep(poll_interval_seconds)
 
-    def fulltext_search(self, query: str, top_k: int) -> list[SectionMatch]:
-        """Full-text search over owned ``OkfSection`` nodes using the
-        Neo4j full-text index on ``heading`` and ``text``."""
+    def fulltext_search(self, query: str, top_k: int, corpus: str) -> list[SectionMatch]:
+        """Full-text search over owned ``OkfSection`` nodes of
+        ``corpus`` using the Neo4j full-text index on ``heading`` and
+        ``text``."""
 
         records = self._run(
             f"""
             CALL db.index.fulltext.queryNodes('{FULLTEXT_INDEX_NAME}', $search_text, {{limit: $top_k}})
             YIELD node, score
-            WHERE node.index_owner = $owner
+            WHERE node.index_owner = $owner AND node.corpus = $corpus
             RETURN node.section_id AS section_id,
                    node.document_id AS document_id,
                    node.heading AS heading,
@@ -720,6 +732,7 @@ class Neo4jStore:
             search_text=query,
             top_k=top_k,
             owner=INDEX_OWNER,
+            corpus=corpus,
         )
         return [
             SectionMatch(
@@ -732,16 +745,21 @@ class Neo4jStore:
             for record in records
         ]
 
-    def expand_neighbors(self, document_ids: list[str], hops: int = 1) -> list[dict[str, Any]]:
+    def expand_neighbors(
+        self, document_ids: list[str], hops: int, corpus: str
+    ) -> list[dict[str, Any]]:
         """Return every one-hop ``LINKS_TO`` edge connecting any of the
-        owned ``document_ids`` to a neighboring owned document that is
-        not itself among ``document_ids``.
+        owned ``document_ids`` (within ``corpus``) to a neighboring
+        owned document, in the same corpus, that is not itself among
+        ``document_ids``.
 
         Only one-hop expansion is supported; additional traversal
         depth is outside the initial scope (see Step 7 of the plan).
         Each returned row has ``seed_document_id``, ``direction``
         (``"outgoing"`` or ``"incoming"``), ``neighbor_document_id``,
         ``source_section_id``, ``raw_target``, and ``target_anchor``.
+        The corpus filter on both the seed and neighbor documents
+        guarantees expansion never crosses a corpus boundary.
         """
 
         if hops != 1:
@@ -749,9 +767,9 @@ class Neo4jStore:
 
         records = self._run(
             """
-            MATCH (seed:OkfDocument {index_owner: $owner})
+            MATCH (seed:OkfDocument {index_owner: $owner, corpus: $corpus})
             WHERE seed.document_id IN $document_ids
-            OPTIONAL MATCH (seed)-[out:LINKS_TO]->(outNeighbor:OkfDocument)
+            OPTIONAL MATCH (seed)-[out:LINKS_TO {corpus: $corpus}]->(outNeighbor:OkfDocument {corpus: $corpus})
             WHERE NOT outNeighbor.document_id IN $document_ids
             WITH seed, collect(DISTINCT {
                 direction: 'outgoing', neighbor: outNeighbor.document_id,
@@ -759,7 +777,7 @@ class Neo4jStore:
                 raw_target: out.raw_target,
                 target_anchor: coalesce(out.target_anchor, null)
             }) AS outgoing_edges
-            OPTIONAL MATCH (inNeighbor:OkfDocument)-[incoming:LINKS_TO]->(seed)
+            OPTIONAL MATCH (inNeighbor:OkfDocument {corpus: $corpus})-[incoming:LINKS_TO {corpus: $corpus}]->(seed)
             WHERE NOT inNeighbor.document_id IN $document_ids
             WITH seed, outgoing_edges, collect(DISTINCT {
                 direction: 'incoming', neighbor: inNeighbor.document_id,
@@ -778,25 +796,30 @@ class Neo4jStore:
                    edge.target_anchor AS target_anchor
             """,
             owner=INDEX_OWNER,
+            corpus=corpus,
             document_ids=document_ids,
         )
         return [dict(record) for record in records]
 
-    def section_by_anchor(self, document_id: str, anchor: str) -> SectionMatch | None:
-        """Return the owned section matching ``anchor`` within
-        ``document_id``, or ``None`` if no section carries that
+    def section_by_anchor(
+        self, document_id: str, anchor: str, corpus: str
+    ) -> SectionMatch | None:
+        """Return the owned section of ``corpus`` matching ``anchor``
+        within ``document_id``, or ``None`` if no section carries that
         anchor."""
 
         records = self._run(
             """
             MATCH (s:OkfSection {
-                index_owner: $owner, document_id: $document_id, anchor: $anchor
+                index_owner: $owner, corpus: $corpus,
+                document_id: $document_id, anchor: $anchor
             })
             RETURN s.section_id AS section_id, s.document_id AS document_id,
                    s.heading AS heading, s.source_path AS source_path
             LIMIT 1
             """,
             owner=INDEX_OWNER,
+            corpus=corpus,
             document_id=document_id,
             anchor=anchor,
         )
@@ -811,20 +834,21 @@ class Neo4jStore:
             source_path=record["source_path"],
         )
 
-    def first_section(self, document_id: str) -> SectionMatch | None:
-        """Return the first owned section (lowest ``ordinal``) within
-        ``document_id``, the deterministic fallback used when no
-        anchor or relevant section is found."""
+    def first_section(self, document_id: str, corpus: str) -> SectionMatch | None:
+        """Return the first owned section (lowest ``ordinal``) of
+        ``corpus`` within ``document_id``, the deterministic fallback
+        used when no anchor or relevant section is found."""
 
         records = self._run(
             """
-            MATCH (s:OkfSection {index_owner: $owner, document_id: $document_id})
+            MATCH (s:OkfSection {index_owner: $owner, corpus: $corpus, document_id: $document_id})
             RETURN s.section_id AS section_id, s.document_id AS document_id,
                    s.heading AS heading, s.source_path AS source_path
             ORDER BY s.ordinal ASC
             LIMIT 1
             """,
             owner=INDEX_OWNER,
+            corpus=corpus,
             document_id=document_id,
         )
         if not records:
@@ -839,22 +863,22 @@ class Neo4jStore:
         )
 
     def best_section_in_document(
-        self, document_id: str, embedding: list[float], query_text: str
+        self, document_id: str, embedding: list[float], query_text: str, corpus: str
     ) -> SectionMatch | None:
         """Return the highest lexical- or vector-relevance owned
-        section within ``document_id`` for the given query, or
-        ``None`` if neither search path returns a match in that
-        document.
+        section within ``document_id`` (in ``corpus``) for the given
+        query, or ``None`` if neither search path returns a match in
+        that document.
 
         Reuses the existing vector and full-text search paths,
         filtering their results to ``document_id`` in Python, rather
         than issuing a document-scoped Cypher query.
         """
 
-        for match in self.fulltext_search(query_text, top_k=20):
+        for match in self.fulltext_search(query_text, top_k=20, corpus=corpus):
             if match.document_id == document_id:
                 return match
-        for match in self.vector_search(embedding, top_k=20):
+        for match in self.vector_search(embedding, top_k=20, corpus=corpus):
             if match.document_id == document_id:
                 return match
         return None

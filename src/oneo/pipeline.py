@@ -216,7 +216,7 @@ class Oneo:
             store.write_sections(all_sections, corpus_name)
             store.write_links(resolved_links, corpus_name)
             store.wait_for_fulltext_index_online()
-            self._wait_for_fulltext_queryable(store, all_sections)
+            self._wait_for_fulltext_queryable(store, all_sections, corpus_name)
 
             if embeddings:
                 self._generate_embeddings(store, documents, corpus_name)
@@ -229,7 +229,7 @@ class Oneo:
 
     @staticmethod
     def _wait_for_fulltext_queryable(
-        store: Neo4jStore, sections: list[OkfSection]
+        store: Neo4jStore, sections: list[OkfSection], corpus: str
     ) -> None:
         """Probe the real full-text query path for a just-written
         section, in addition to trusting ``SHOW INDEXES`` state (see
@@ -247,7 +247,9 @@ class Oneo:
             if not probe_term:
                 continue
             sample_query = " ".join(probe_term)
-            store.wait_for_fulltext_index_queryable(sample_query, section.section_id)
+            store.wait_for_fulltext_index_queryable(
+                sample_query, section.section_id, corpus
+            )
             return
 
     def _generate_embeddings(
@@ -319,7 +321,7 @@ class Oneo:
 
         if sample_row is not None:
             queryable = store.wait_for_vector_index_queryable(
-                sample_row["embedding"], sample_row["section_id"]
+                sample_row["embedding"], sample_row["section_id"], corpus
             )
             if not queryable:
                 raise RuntimeError(
@@ -385,15 +387,15 @@ class Oneo:
         (rank fusion, graph expansion) is implemented in Step 6.
 
         ``corpus`` is resolved against the registry (falling back to
-        its configured default) but not yet used to filter results --
-        corpus-scoped search filters land in Step 4.
+        its configured default) and used to filter results to that
+        corpus.
         """
 
-        self._resolve_corpus_name(corpus)
+        corpus_name = self._resolve_corpus_name(corpus)
         embedder = SectionEmbedder()
         query_embedding = list(embedder.embed_query(query))
         with self._graph_store() as store:
-            matches = store.vector_search(query_embedding, top_k)
+            matches = store.vector_search(query_embedding, top_k, corpus_name)
         return tuple(matches)
 
     def retrieve(
@@ -417,19 +419,24 @@ class Oneo:
         part of this method.
 
         ``corpus`` is resolved against the registry (falling back to
-        its configured default) but not yet used to filter results --
-        corpus-scoped search filters land in Step 4.
+        its configured default) and used to filter every vector,
+        full-text, and graph-expansion lookup to that corpus, so
+        expansion can never surface a section from another corpus.
         """
 
-        self._resolve_corpus_name(corpus)
+        corpus_name = self._resolve_corpus_name(corpus)
         resolved_top_k = top_k if top_k is not None else self._settings.retrieval_top_k
 
         embedder = SectionEmbedder()
         query_embedding = list(embedder.embed_query(query))
 
         with self._graph_store() as store:
-            vector_matches = list(store.vector_search(query_embedding, resolved_top_k))
-            lexical_matches = list(store.fulltext_search(query, resolved_top_k))
+            vector_matches = list(
+                store.vector_search(query_embedding, resolved_top_k, corpus_name)
+            )
+            lexical_matches = list(
+                store.fulltext_search(query, resolved_top_k, corpus_name)
+            )
 
             hits = fuse_rankings(
                 vector_matches,
@@ -445,7 +452,9 @@ class Oneo:
                 seed_document_ids = sorted(
                     {hit.document_id for hit in seed_hits}
                 )
-                edge_rows = store.expand_neighbors(seed_document_ids)
+                edge_rows = store.expand_neighbors(
+                    seed_document_ids, hops=1, corpus=corpus_name
+                )
                 links = [LinkedDocument(**row) for row in edge_rows]
 
                 candidates: dict[str, tuple[SectionMatch, str]] = {}
@@ -457,16 +466,23 @@ class Oneo:
                     strategy = ""
                     if link.target_anchor:
                         match = store.section_by_anchor(
-                            link.neighbor_document_id, link.target_anchor
+                            link.neighbor_document_id,
+                            link.target_anchor,
+                            corpus_name,
                         )
                         strategy = "anchor"
                     if match is None:
                         match = store.best_section_in_document(
-                            link.neighbor_document_id, query_embedding, query
+                            link.neighbor_document_id,
+                            query_embedding,
+                            query,
+                            corpus_name,
                         )
                         strategy = "relevance"
                     if match is None:
-                        match = store.first_section(link.neighbor_document_id)
+                        match = store.first_section(
+                            link.neighbor_document_id, corpus_name
+                        )
                         strategy = "first-section"
 
                     if match is not None:
@@ -503,10 +519,10 @@ class Oneo:
         explicit insufficient-evidence result is returned.
 
         ``corpus`` is resolved against the registry (falling back to
-        its configured default) but not yet used to filter retrieval
-        (``retrieve``) results -- corpus-scoped search filters land in
-        Step 4. It is used to scope the ``get_section_texts`` lookup
-        below, since that store method is corpus-scoped as of Step 3.
+        its configured default) and threaded through both
+        :meth:`retrieve` (so every seed and expanded hit belongs to
+        that corpus) and the ``get_section_texts`` lookup below, so
+        every citation resolves within the selected corpus.
         """
 
         corpus_name = self._resolve_corpus_name(corpus)

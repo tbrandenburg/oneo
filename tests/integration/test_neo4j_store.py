@@ -261,7 +261,7 @@ def test_fulltext_search_returns_matching_owned_sections(store):
     store.write_sections(_sample_sections(), CORPUS)
     store.wait_for_fulltext_index_online()
 
-    matches = store.fulltext_search("billing", top_k=5)
+    matches = store.fulltext_search("billing", top_k=5, corpus=CORPUS)
 
     assert matches
     assert matches[0].section_id == "overview::_::0"
@@ -274,7 +274,7 @@ def test_fulltext_search_ignores_unrelated_data(store):
     store.write_sections(_sample_sections(), CORPUS)
     store.wait_for_fulltext_index_online()
 
-    matches = store.fulltext_search("nested placeholder", top_k=5)
+    matches = store.fulltext_search("nested placeholder", top_k=5, corpus=CORPUS)
 
     assert matches
     assert all(match.document_id in ("overview", "topics/example") for match in matches)
@@ -378,7 +378,7 @@ def test_expand_neighbors_returns_outgoing_edge(store):
         CORPUS,
     )
 
-    edges = store.expand_neighbors(["billing"])
+    edges = store.expand_neighbors(["billing"], hops=1, corpus=CORPUS)
 
     assert len(edges) == 1
     edge = edges[0]
@@ -405,7 +405,7 @@ def test_expand_neighbors_returns_incoming_edge(store):
         CORPUS,
     )
 
-    edges = store.expand_neighbors(["payments"])
+    edges = store.expand_neighbors(["payments"], hops=1, corpus=CORPUS)
 
     assert len(edges) == 1
     assert edges[0]["direction"] == "incoming"
@@ -429,7 +429,7 @@ def test_expand_neighbors_excludes_edges_between_seed_documents(store):
         CORPUS,
     )
 
-    edges = store.expand_neighbors(["billing", "payments"])
+    edges = store.expand_neighbors(["billing", "payments"], hops=1, corpus=CORPUS)
 
     assert edges == []
 
@@ -438,14 +438,14 @@ def test_expand_neighbors_rejects_hops_other_than_one(store):
     import pytest
 
     with pytest.raises(ValueError):
-        store.expand_neighbors(["billing"], hops=2)
+        store.expand_neighbors(["billing"], hops=2, corpus=CORPUS)
 
 
 def test_section_by_anchor_returns_matching_section(store):
     store.write_documents(_expansion_sample_documents(), CORPUS)
     store.write_sections(_expansion_sample_sections(), CORPUS)
 
-    match = store.section_by_anchor("payments", "receipts")
+    match = store.section_by_anchor("payments", "receipts", corpus=CORPUS)
 
     assert match is not None
     assert match.section_id == "payments::receipts::1"
@@ -455,14 +455,14 @@ def test_section_by_anchor_returns_none_when_missing(store):
     store.write_documents(_expansion_sample_documents(), CORPUS)
     store.write_sections(_expansion_sample_sections(), CORPUS)
 
-    assert store.section_by_anchor("payments", "does-not-exist") is None
+    assert store.section_by_anchor("payments", "does-not-exist", corpus=CORPUS) is None
 
 
 def test_first_section_returns_lowest_ordinal(store):
     store.write_documents(_expansion_sample_documents(), CORPUS)
     store.write_sections(_expansion_sample_sections(), CORPUS)
 
-    match = store.first_section("payments")
+    match = store.first_section("payments", corpus=CORPUS)
 
     assert match is not None
     assert match.section_id == "payments::charging::0"
@@ -473,7 +473,7 @@ def test_best_section_in_document_prefers_lexical_match_in_target_document(store
     store.write_sections(_expansion_sample_sections(), CORPUS)
     store.wait_for_fulltext_index_online()
 
-    match = store.best_section_in_document("payments", [0.1] * 384, "receipt issued")
+    match = store.best_section_in_document("payments", [0.1] * 384, "receipt issued", corpus=CORPUS)
 
     assert match is not None
     assert match.document_id == "payments"
@@ -485,7 +485,7 @@ def test_best_section_in_document_returns_none_when_no_match_in_document(store):
     store.wait_for_fulltext_index_online()
 
     match = store.best_section_in_document(
-        "does-not-exist", [0.1] * 384, "receipt issued"
+        "does-not-exist", [0.1] * 384, "receipt issued", corpus=CORPUS
     )
 
     assert match is None
@@ -501,7 +501,7 @@ def test_vector_search_returns_empty_when_index_does_not_exist(store):
     store.write_documents(_sample_documents(), CORPUS)
     store.write_sections(_sample_sections(), CORPUS)
 
-    matches = store.vector_search([0.1] * 384, top_k=5)
+    matches = store.vector_search([0.1] * 384, top_k=5, corpus=CORPUS)
 
     assert matches == []
 
@@ -595,6 +595,7 @@ def test_wait_for_vector_index_queryable_tolerates_ranking_ties(store):
     is_queryable = store.wait_for_vector_index_queryable(
         sample_embedding=tied_vector,
         sample_section_id=sample_section_id,
+        corpus=CORPUS,
         timeout_seconds=30.0,
     )
 

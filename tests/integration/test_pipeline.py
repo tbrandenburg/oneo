@@ -640,3 +640,159 @@ def test_query_graph_hybrid_cites_expanded_document(tmp_path):
         assert cited_document_ids & expanded_document_ids or result.graph_paths
     finally:
         coordinator.reset()
+
+
+def _two_corpus_registry(billing_root, engineering_root) -> CorpusRegistry:
+    return CorpusRegistry(
+        {
+            "billing": Corpus(name="billing", root=str(billing_root)),
+            "engineering": Corpus(name="engineering", root=str(engineering_root)),
+        },
+        "billing",
+    )
+
+
+def _make_engineering_corpus(root):
+    """A corpus with document/section identifiers and vocabulary
+    deliberately disjoint from ``_make_retrieval_corpus``/
+    ``_make_graph_expansion_corpus``, used to prove corpus isolation
+    without relying on identical fixture content."""
+
+    (root / "deployment.md").write_text(
+        "---\ntitle: Deployment Pipeline\ntype: concept\n---\n\n"
+        "# Deployment Pipeline\n\n"
+        "## Continuous Integration Stages\n\n"
+        "Every merge triggers a build, a linting pass, and a full test "
+        "suite before an artifact is published to the registry. See "
+        "[test strategy](testing.md#automated-test-strategy) for how "
+        "coverage is enforced.\n"
+    )
+    (root / "testing.md").write_text(
+        "---\ntitle: Testing Strategy\ntype: concept\n---\n\n"
+        "# Testing Strategy\n\n"
+        "## Automated Test Strategy\n\n"
+        "Unit tests run on every commit, while integration tests run "
+        "nightly against a staging cluster.\n"
+    )
+
+
+@requires_neo4j
+def test_retrieve_never_leaks_hits_across_corpuses(tmp_path):
+    """A query that matches content in one corpus but not the other
+    must only return hits belonging to the explicitly selected corpus,
+    never a document from the other corpus."""
+
+    billing_root = tmp_path / "billing"
+    engineering_root = tmp_path / "engineering"
+    billing_root.mkdir()
+    engineering_root.mkdir()
+    _make_retrieval_corpus(billing_root)
+    _make_engineering_corpus(engineering_root)
+
+    settings = Settings()
+    coordinator = Oneo(
+        settings, registry=_two_corpus_registry(billing_root, engineering_root)
+    )
+
+    try:
+        coordinator.index(str(billing_root), rebuild=True, embeddings=True, corpus="billing")
+        coordinator.index(
+            str(engineering_root), rebuild=True, embeddings=True, corpus="engineering"
+        )
+
+        billing_result = coordinator.retrieve(
+            "customer billing", top_k=5, corpus="billing"
+        )
+        engineering_result = coordinator.retrieve(
+            "customer billing", top_k=5, corpus="engineering"
+        )
+
+        assert billing_result.hits
+        billing_document_ids = {"billing", "payments", "weather"}
+        engineering_document_ids = {"deployment", "testing"}
+
+        for hit in billing_result.hits:
+            assert hit.document_id in billing_document_ids
+
+        for hit in engineering_result.hits:
+            assert hit.document_id in engineering_document_ids
+            assert hit.document_id not in billing_document_ids
+    finally:
+        coordinator.reset(corpus="billing")
+        coordinator.reset(corpus="engineering")
+
+
+@requires_neo4j
+def test_retrieve_graph_hybrid_never_expands_across_corpuses(tmp_path):
+    """Graph expansion must stay within the selected corpus even when
+    another corpus is indexed alongside it with its own link topology."""
+
+    billing_root = tmp_path / "billing"
+    engineering_root = tmp_path / "engineering"
+    billing_root.mkdir()
+    engineering_root.mkdir()
+    _make_graph_expansion_corpus(billing_root)
+    _make_engineering_corpus(engineering_root)
+
+    settings = Settings()
+    coordinator = Oneo(
+        settings, registry=_two_corpus_registry(billing_root, engineering_root)
+    )
+
+    try:
+        coordinator.index(str(billing_root), rebuild=True, embeddings=True, corpus="billing")
+        coordinator.index(
+            str(engineering_root), rebuild=True, embeddings=True, corpus="engineering"
+        )
+
+        result = coordinator.retrieve(
+            "customer billing", top_k=1, expand=True, corpus="billing"
+        )
+
+        assert result.expanded_hits
+        for hit in result.hits + result.expanded_hits:
+            assert hit.document_id in ("billing", "payments")
+            assert hit.document_id not in ("deployment", "testing")
+    finally:
+        coordinator.reset(corpus="billing")
+        coordinator.reset(corpus="engineering")
+
+
+@requires_neo4j
+def test_query_citations_never_resolve_outside_selected_corpus(tmp_path):
+    """Every citation in a grounded answer must resolve to a section of
+    the selected corpus, even when another corpus is indexed alongside
+    it."""
+
+    billing_root = tmp_path / "billing"
+    engineering_root = tmp_path / "engineering"
+    billing_root.mkdir()
+    engineering_root.mkdir()
+    _make_retrieval_corpus(billing_root)
+    _make_engineering_corpus(engineering_root)
+
+    settings = Settings()
+    coordinator = Oneo(
+        settings,
+        registry=_two_corpus_registry(billing_root, engineering_root),
+        chat_model=ExtractiveChatModel(),
+    )
+
+    try:
+        coordinator.index(str(billing_root), rebuild=True, embeddings=True, corpus="billing")
+        coordinator.index(
+            str(engineering_root), rebuild=True, embeddings=True, corpus="engineering"
+        )
+
+        result = coordinator.query(
+            "How are customers billed?", top_k=3, corpus="billing"
+        )
+
+        assert not result.insufficient_evidence
+        assert result.citations
+        for citation in result.citations:
+            assert citation.document_id in ("billing", "payments", "weather")
+            assert citation.document_id not in ("deployment", "testing")
+    finally:
+        coordinator.reset(corpus="billing")
+        coordinator.reset(corpus="engineering")
