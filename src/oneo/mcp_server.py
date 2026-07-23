@@ -43,16 +43,23 @@ def _build_context(settings: Settings | None = None) -> _ServerContext:
     return _ServerContext(coordinator=coordinator, registry=registry)
 
 
-def build_server(context: _ServerContext | None = None) -> FastMCP:
+def build_server(
+    context: _ServerContext | None = None,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+) -> FastMCP:
     """Build (but do not run) the Oneo MCP server.
 
     ``context`` is injectable for testing (see
     ``tests/unit/test_mcp_server.py``); production callers omit it and
-    get a real coordinator built from environment settings.
+    get a real coordinator built from environment settings. ``host``
+    and ``port`` only take effect for the ``streamable-http``
+    transport; the FastMCP SDK accepts them as constructor arguments,
+    not ``run()`` arguments.
     """
 
     ctx = context if context is not None else _build_context()
-    mcp = FastMCP("oneo")
+    mcp = FastMCP("oneo", host=host, port=port)
 
     @mcp.tool(name="oneo_list_corpuses")
     def oneo_list_corpuses() -> list[dict[str, object]]:
@@ -123,9 +130,12 @@ def build_server(context: _ServerContext | None = None) -> FastMCP:
 def run_mcp_server(transport: str = "stdio", **kwargs: object) -> None:
     """Build and run the Oneo MCP server.
 
-    Forwards straight to the SDK -- no dispatch/branching logic of our
-    own beyond passing ``transport``/``host``/``port`` through.
+    ``host``/``port`` (streamable-http only) are forwarded to
+    ``build_server`` since FastMCP takes them as constructor
+    arguments; ``run()`` itself only accepts ``transport``.
     """
 
-    server = build_server()
+    host = kwargs.pop("host", "127.0.0.1")
+    port = kwargs.pop("port", 8765)
+    server = build_server(host=host, port=port)  # type: ignore[arg-type]
     server.run(transport=transport, **kwargs)
