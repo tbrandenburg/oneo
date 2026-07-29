@@ -28,21 +28,8 @@ docker compose up -d neo4j
 
 `.env` configures the operator-owned corpus registry, Neo4j connection, and
 retrieval tuning parameters (see `src/oneo/config.py` for the full list of
-`ONEO_*` settings). Create `corpuses.toml` from the template and point it at
-your canonical OKF roots:
-
-```bash
-cp corpuses.toml.example corpuses.toml
-```
-
-```toml
-# corpuses.toml
-[corpuses.product]
-root = "/path/to/product-knowledge"
-
-[corpuses.operations]
-root = "/path/to/operations-knowledge"
-```
+`ONEO_*` settings). `oneo init` creates the registry at `ONEO_CORPUS_CONFIG`
+(default: `corpuses.toml`) and never overwrites an existing file.
 
 `ONEO_DEFAULT_CORPUS` selects which corpus is used when `--corpus` is
 omitted; every corpus-scoped command otherwise requires an explicit
@@ -74,11 +61,11 @@ type: concept
 Initial knowledge content.
 ```
 
-Register that directory in the operator-owned `corpuses.toml`:
+Initialize the operator-owned registry and register that directory:
 
-```toml
-[corpuses.product]
-root = "/home/you/knowledge/product"
+```bash
+uv run oneo init
+uv run oneo corpus add product ~/knowledge/product
 ```
 
 Verify the source, build its derived Neo4j index, then ask the first question:

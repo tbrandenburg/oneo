@@ -84,13 +84,24 @@ class _FakeCoordinator:
             raise self._parse_error
         return self._parsed
 
-    def validate(self, input_path: str | None = None, strict: bool = False, corpus: str | None = None):
+    def validate(
+        self,
+        input_path: str | None = None,
+        strict: bool = False,
+        corpus: str | None = None,
+    ):
         self.received_corpus["validate"] = corpus
         if self._validate_error is not None:
             raise self._validate_error
         return self._validation_result
 
-    def index(self, input_path: str | None = None, rebuild: bool = True, embeddings: bool = True, corpus: str | None = None):
+    def index(
+        self,
+        input_path: str | None = None,
+        rebuild: bool = True,
+        embeddings: bool = True,
+        corpus: str | None = None,
+    ):
         self.received_corpus["index"] = corpus
         if self._index_error is not None:
             raise self._index_error
@@ -108,19 +119,33 @@ class _FakeCoordinator:
             raise self._reset_error
         self.reset_called = True
 
-    def retrieve(self, query: str, top_k: int | None = None, expand: bool = False, corpus: str | None = None):
+    def retrieve(
+        self,
+        query: str,
+        top_k: int | None = None,
+        expand: bool = False,
+        corpus: str | None = None,
+    ):
         self.received_corpus["retrieve"] = corpus
         if self._retrieve_error is not None:
             raise self._retrieve_error
         return self._retrieval_result
 
-    def query(self, query: str, top_k: int | None = None, expand: bool = True, corpus: str | None = None):
+    def query(
+        self,
+        query: str,
+        top_k: int | None = None,
+        expand: bool = True,
+        corpus: str | None = None,
+    ):
         self.received_corpus["query"] = corpus
         if self._query_error is not None:
             raise self._query_error
         return self._query_result
 
-    def vector_search(self, query: str, top_k: int | None = None, corpus: str | None = None):
+    def vector_search(
+        self, query: str, top_k: int | None = None, corpus: str | None = None
+    ):
         self.received_corpus["vector_search"] = corpus
         if self._vector_search_error is not None:
             raise self._vector_search_error
@@ -128,9 +153,7 @@ class _FakeCoordinator:
 
 
 def test_health_reports_connected(monkeypatch):
-    status = HealthStatus(
-        connected=True, database="neo4j", server_agent="Neo4j/5.0.0"
-    )
+    status = HealthStatus(connected=True, database="neo4j", server_agent="Neo4j/5.0.0")
     monkeypatch.setattr(
         cli, "_build_coordinator", lambda **_: _FakeCoordinator(health_status=status)
     )
@@ -336,7 +359,9 @@ def test_index_reports_not_implemented_error(monkeypatch):
     monkeypatch.setattr(
         cli,
         "_build_coordinator",
-        lambda **_: _FakeCoordinator(index_error=NotImplementedError("no embeddings yet")),
+        lambda **_: _FakeCoordinator(
+            index_error=NotImplementedError("no embeddings yet")
+        ),
     )
 
     result = runner.invoke(cli.app, ["index", "some/path"])
@@ -429,7 +454,9 @@ def test_retrieve_prints_fused_hits(monkeypatch):
         lambda **_: _FakeCoordinator(retrieval_result=retrieval_result),
     )
 
-    result = runner.invoke(cli.app, ["retrieve", "customer billing", "--mode", "hybrid"])
+    result = runner.invoke(
+        cli.app, ["retrieve", "customer billing", "--mode", "hybrid"]
+    )
 
     assert result.exit_code == 0
     assert "document_id=billing" in result.output
@@ -470,9 +497,7 @@ def test_retrieve_explain_prints_ranking_diagnostics(monkeypatch):
 
 
 def test_retrieve_rejects_unsupported_mode(monkeypatch):
-    monkeypatch.setattr(
-        cli, "_build_coordinator", lambda **_: _FakeCoordinator()
-    )
+    monkeypatch.setattr(cli, "_build_coordinator", lambda **_: _FakeCoordinator())
 
     result = runner.invoke(
         cli.app, ["retrieve", "customer billing", "--mode", "bogus-mode"]
@@ -715,6 +740,69 @@ def test_corpus_list_prints_names_and_roots(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "billing ./corpuses/billing" in result.output
     assert "engineering ./corpuses/engineering" in result.output
+
+
+def test_init_creates_configured_registry(monkeypatch, tmp_path):
+    config_path = tmp_path / "config" / "corpuses.toml"
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(config_path))
+
+    result = runner.invoke(cli.app, ["init"])
+
+    assert result.exit_code == 0
+    assert config_path.read_text() == "[corpuses]\n"
+    assert "oneo corpus add <name> <root>" in result.output
+
+
+def test_init_refuses_to_overwrite_registry(monkeypatch, tmp_path):
+    config_path = tmp_path / "corpuses.toml"
+    config_path.write_text("[corpuses]\n")
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(config_path))
+
+    result = runner.invoke(cli.app, ["init"])
+
+    assert result.exit_code == 1
+    assert "refusing to overwrite" in result.output
+
+
+def test_corpus_add_registers_root_and_prints_follow_up_commands(monkeypatch, tmp_path):
+    config_path = tmp_path / "corpuses.toml"
+    root = tmp_path / "product"
+    root.mkdir()
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(config_path))
+    assert runner.invoke(cli.app, ["init"]).exit_code == 0
+
+    result = runner.invoke(cli.app, ["corpus", "add", "product", str(root)])
+
+    assert result.exit_code == 0
+    assert f'root = "{root.resolve()}"' in config_path.read_text()
+    assert "oneo validate --corpus product --strict" in result.output
+    assert "oneo index --corpus product --rebuild" in result.output
+    assert 'oneo query "<question>" --corpus product' in result.output
+
+
+def test_corpus_add_rejects_missing_registry_invalid_input_and_duplicates(
+    monkeypatch, tmp_path
+):
+    config_path = tmp_path / "corpuses.toml"
+    root = tmp_path / "product"
+    root.mkdir()
+    monkeypatch.setenv("ONEO_CORPUS_CONFIG", str(config_path))
+
+    missing = runner.invoke(cli.app, ["corpus", "add", "product", str(root)])
+    assert missing.exit_code == 1
+    assert "Run 'oneo init'" in missing.output
+
+    assert runner.invoke(cli.app, ["init"]).exit_code == 0
+    invalid = runner.invoke(cli.app, ["corpus", "add", "Bad Name", str(root)])
+    assert invalid.exit_code == 1
+    assert "invalid corpus name" in invalid.output
+
+    assert (
+        runner.invoke(cli.app, ["corpus", "add", "product", str(root)]).exit_code == 0
+    )
+    duplicate = runner.invoke(cli.app, ["corpus", "add", "product", str(root)])
+    assert duplicate.exit_code == 1
+    assert "duplicate corpus name" in duplicate.output
 
 
 def test_corpus_info_reports_existing_root(monkeypatch, tmp_path):
@@ -994,9 +1082,7 @@ def test_verify_threads_corpus_flag(monkeypatch):
     coordinator = _FakeCoordinator(verification_result=verification_result)
     monkeypatch.setattr(cli, "_build_coordinator", lambda **_: coordinator)
 
-    result = runner.invoke(
-        cli.app, ["verify", "./somewhere", "--corpus", "billing"]
-    )
+    result = runner.invoke(cli.app, ["verify", "./somewhere", "--corpus", "billing"])
 
     assert result.exit_code == 0
     assert coordinator.received_corpus["verify"] == "billing"
