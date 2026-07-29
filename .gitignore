@@ -10,6 +10,7 @@ build/
 .flowsh/
 dev/
 logs/
+.worktrees/
 
 # User
 /factory_v2.sh

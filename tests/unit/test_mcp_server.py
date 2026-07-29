@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
+
 import pytest
 
 from oneo.corpus import Corpus, CorpusConfigError, CorpusRegistry
@@ -77,7 +81,9 @@ async def test_oneo_ask_returns_answer_and_citations():
     query_result = _FakeAnswerResult(
         answer="Invoices are due net-30.",
         citations=(
-            _FakeCitation("S1", "Payment Terms", "billing/terms.md", "terms", "terms#0"),
+            _FakeCitation(
+                "S1", "Payment Terms", "billing/terms.md", "terms", "terms#0"
+            ),
         ),
     )
     ctx = _ServerContext(
@@ -121,17 +127,42 @@ async def test_oneo_ask_reports_unknown_corpus_as_actionable_string():
     assert result.structuredContent["citations"] == []
 
 
-@pytest.mark.anyio
-async def test_startup_does_not_import_torch():
-    import sys
+def test_startup_does_not_import_torch():
+    script = textwrap.dedent(
+        """
+        import asyncio
+        import sys
 
-    ctx = _ServerContext(coordinator=_FakeCoordinator(), registry=_fake_registry())
-    server = build_server(ctx)
+        from mcp.shared.memory import create_connected_server_and_client_session
+        from oneo.corpus import Corpus, CorpusRegistry
+        from oneo.mcp_server import _ServerContext, build_server
 
-    await _list_tools(server)
 
-    assert "torch" not in sys.modules
-    assert "sentence_transformers" not in sys.modules
+        async def main():
+            context = _ServerContext(
+                coordinator=object(),
+                registry=CorpusRegistry(
+                    {"billing": Corpus(name="billing", root="/tmp/billing")},
+                    "billing",
+                ),
+            )
+            server = build_server(context)
+            async with create_connected_server_and_client_session(server) as session:
+                await session.list_tools()
+
+
+        asyncio.run(main())
+        imported = {"torch", "sentence_transformers"} & sys.modules.keys()
+        if imported:
+            raise SystemExit(f"heavy modules imported during MCP startup: {imported}")
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.anyio
@@ -141,4 +172,7 @@ async def test_tool_surface_is_exactly_two_tools():
 
     result = await _list_tools(server)
 
-    assert sorted(tool.name for tool in result.tools) == ["oneo_ask", "oneo_list_corpuses"]
+    assert sorted(tool.name for tool in result.tools) == [
+        "oneo_ask",
+        "oneo_list_corpuses",
+    ]
