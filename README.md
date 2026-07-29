@@ -26,9 +26,10 @@ cp .env.example .env
 docker compose up -d neo4j
 ```
 
-`.env` configures the corpus registry, Neo4j connection, and retrieval
-tuning parameters (see `src/oneo/config.py` for the full list of
-`ONEO_*` settings). Corpuses are registered in `corpuses.toml`:
+`.env` configures the operator-owned corpus registry, Neo4j connection, and
+retrieval tuning parameters (see `src/oneo/config.py` for the full list of
+`ONEO_*` settings). Create `corpuses.toml` from the template and point it at
+your canonical OKF roots:
 
 ```bash
 cp corpuses.toml.example corpuses.toml
@@ -36,16 +37,20 @@ cp corpuses.toml.example corpuses.toml
 
 ```toml
 # corpuses.toml
-[corpuses.billing]
-root = "./corpuses/billing"
+[corpuses.product]
+root = "/path/to/product-knowledge"
 
-[corpuses.engineering]
-root = "./corpuses/engineering"
+[corpuses.operations]
+root = "/path/to/operations-knowledge"
 ```
 
 `ONEO_DEFAULT_CORPUS` selects which corpus is used when `--corpus` is
 omitted; every corpus-scoped command otherwise requires an explicit
 `--corpus <name>`.
+
+The committed `examples/` directory contains the `billing` and `engineering`
+demo bundles and `examples/corpuses.toml`. They are not operator corpus roots
+and are selected only by `scripts/demo.sh`.
 
 ## Usage
 
@@ -56,34 +61,34 @@ uv run oneo health
 # List registered corpuses and their filesystem roots
 uv run oneo corpus list
 
-# List discovered OKF source files for a corpus
-uv run oneo files --corpus billing
+# List discovered OKF source files for an operator-configured corpus
+uv run oneo files --corpus product
 
 # Parse a corpus into a normalized JSON representation
-uv run oneo parse --corpus billing --output build/billing.json
+uv run oneo parse --corpus product --output build/product.json
 
 # Validate a corpus (add --strict to fail on unresolved links/anchors)
-uv run oneo validate --corpus billing --strict
+uv run oneo validate --corpus product --strict
 
 # Reset the Neo4j data owned by this index for one corpus
-uv run oneo reset --corpus billing
+uv run oneo reset --corpus product
 
 # Index a corpus into Neo4j: schema, documents, sections, links, embeddings
-uv run oneo index --corpus billing --rebuild
+uv run oneo index --corpus product --rebuild
 
 # Compare a corpus's filesystem against its graph index
-uv run oneo verify --corpus billing
+uv run oneo verify --corpus product
 
 # Raw vector-similarity search over one corpus's indexed sections
-uv run oneo vector-search "How are customers billed?" --corpus billing
+uv run oneo vector-search "How is the product documented?" --corpus product
 
 # Hybrid retrieval (vector + full-text, rank-fused) for one corpus,
 # optionally with one-hop graph expansion via --mode graph-hybrid
-uv run oneo retrieve "How are customers billed?" --mode hybrid --corpus billing --explain
+uv run oneo retrieve "How is the product documented?" --mode hybrid --corpus product --explain
 
 # Grounded, cited answer generation for one corpus (defaults to
 # graph-hybrid retrieval)
-uv run oneo query "How are customers billed?" --corpus billing --show-sources --show-paths
+uv run oneo query "How is the product documented?" --corpus product --show-sources --show-paths
 ```
 
 A `Makefile` wraps the common commands (`make up`, `make validate`,
@@ -127,7 +132,8 @@ both, and creates a GitHub release with auto-generated notes.
 ```
 
 Runs the complete pipeline end to end from a clean checkout — starting
-Neo4j, then for each registered demo corpus (`billing`, `engineering`):
+Neo4j, then for each demo corpus (`billing`, `engineering`) registered in
+`examples/corpuses.toml`:
 validating the corpus, indexing it, running hybrid retrieval, graph
 expansion, and grounded query generation — and finally proves corpus
 isolation before printing a pass/fail summary.

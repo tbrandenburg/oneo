@@ -1,5 +1,5 @@
-[corpuses.billing]
-root = "./corpuses/billing"
+[corpuses.product]
+root = "/path/to/product-knowledge"
 
-[corpuses.engineering]
-root = "./corpuses/engineering"
+[corpuses.operations]
+root = "/path/to/operations-knowledge"

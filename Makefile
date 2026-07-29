@@ -9,10 +9,10 @@ help:
 	@echo "  corpus-list      List configured corpuses; use ONEO_CORPUS_CONFIG"
 	@echo "  corpus-info      Describe a corpus; use CORPUS=<name>"
 	@echo "  validate         Validate a corpus (strict); use CORPUS=<name>"
-	@echo "  index            Rebuild the Neo4j graph index for CORPUS=<name>"
-	@echo "  reset            Delete the derived Neo4j index"
-	@echo "  retrieve         Run hybrid retrieval; use QUERY=\"...\""
-	@echo "  query            Run a grounded query; use QUERY=\"...\""
+	@echo "  index            Rebuild the Neo4j graph index; use CORPUS=<name>"
+	@echo "  reset            Delete a corpus's derived index; use CORPUS=<name>"
+	@echo "  retrieve         Run hybrid retrieval; use CORPUS=<name> QUERY=\"...\""
+	@echo "  query            Run a grounded query; use CORPUS=<name> QUERY=\"...\""
 	@echo "  cypher           Run Cypher via the Neo4j HTTP API; use CYPHER=\"...\""
 	@echo "  test             Run the full pytest suite"
 	@echo "  test-unit        Run unit tests only"
@@ -22,8 +22,7 @@ help:
 	@echo "  publish          Bump version, tag, and release; use BUMP=patch|minor|major"
 	@echo "  clean            Remove build artifacts"
 
-CORPUS ?= billing
-CORPUS_ROOT := corpuses/$(CORPUS)
+CORPUS ?=
 QUERY ?= How are customers billed?
 NEO4J_HTTP_URL ?= http://localhost:7474/db/neo4j/query/v2
 NEO4J_USER ?= neo4j
@@ -47,22 +46,28 @@ corpus-list:
 	uv run oneo corpus list
 
 corpus-info:
+	@test -n "$(CORPUS)" || { echo "CORPUS=<name> is required" >&2; exit 2; }
 	uv run oneo corpus info $(CORPUS)
 
 validate:
-	uv run oneo validate $(CORPUS_ROOT) --strict
+	@test -n "$(CORPUS)" || { echo "CORPUS=<name> is required" >&2; exit 2; }
+	uv run oneo validate --corpus "$(CORPUS)" --strict
 
 index:
-	uv run oneo index $(CORPUS_ROOT) --rebuild
+	@test -n "$(CORPUS)" || { echo "CORPUS=<name> is required" >&2; exit 2; }
+	uv run oneo index --corpus "$(CORPUS)" --rebuild
 
 reset:
-	uv run oneo reset
+	@test -n "$(CORPUS)" || { echo "CORPUS=<name> is required" >&2; exit 2; }
+	uv run oneo reset --corpus "$(CORPUS)"
 
 retrieve:
-	uv run oneo retrieve "$(QUERY)" --mode hybrid
+	@test -n "$(CORPUS)" || { echo "CORPUS=<name> is required" >&2; exit 2; }
+	uv run oneo retrieve "$(QUERY)" --mode hybrid --corpus "$(CORPUS)"
 
 query:
-	uv run oneo query "$(QUERY)"
+	@test -n "$(CORPUS)" || { echo "CORPUS=<name> is required" >&2; exit 2; }
+	uv run oneo query "$(QUERY)" --corpus "$(CORPUS)"
 
 cypher:
 	curl -s -u $(NEO4J_USER):$(NEO4J_PASSWORD) -H "Content-Type: application/json" \
