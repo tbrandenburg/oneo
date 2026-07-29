@@ -52,6 +52,45 @@ The committed `examples/` directory contains the `billing` and `engineering`
 demo bundles and `examples/corpuses.toml`. They are not operator corpus roots
 and are selected only by `scripts/demo.sh`.
 
+## First Corpus
+
+After setup, create a directory for your canonical knowledge outside this
+checkout and add a strict-valid OKF document:
+
+```bash
+mkdir -p ~/knowledge/product
+```
+
+```md
+<!-- ~/knowledge/product/overview.md -->
+---
+id: overview
+title: Product Overview
+type: concept
+---
+
+# Product Overview
+
+Initial knowledge content.
+```
+
+Register that directory in the operator-owned `corpuses.toml`:
+
+```toml
+[corpuses.product]
+root = "/home/you/knowledge/product"
+```
+
+Verify the source, build its derived Neo4j index, then ask the first question:
+
+```bash
+uv run oneo health
+uv run oneo files --corpus product
+uv run oneo validate --corpus product --strict
+uv run oneo index --corpus product --rebuild
+uv run oneo query "What is the product overview?" --corpus product
+```
+
 ## Usage
 
 ```bash
