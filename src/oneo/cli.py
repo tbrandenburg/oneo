@@ -35,6 +35,21 @@ def _build_coordinator(with_chat_model: bool = False) -> Oneo:
     return Oneo(load_settings(), chat_model=chat_model)
 
 
+@app.command()
+def init() -> None:
+    """Create the configured empty corpus registry."""
+
+    config_path = load_settings().corpus_config
+    try:
+        CorpusRegistry.initialize(config_path)
+    except CorpusConfigError as exc:
+        typer.echo(f"corpus configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"created corpus registry: {config_path}")
+    typer.echo("next: oneo corpus add <name> <root>")
+
+
 @corpus_app.command("list")
 def corpus_list() -> None:
     """List every configured corpus and its filesystem root."""
@@ -48,6 +63,26 @@ def corpus_list() -> None:
     for name in registry.names():
         corpus = registry.get(name)
         typer.echo(f"{corpus.name} {corpus.root}")
+
+
+@corpus_app.command("add")
+def corpus_add(
+    name: str = typer.Argument(..., help="Stable corpus name."),
+    root: str = typer.Argument(..., help="Existing canonical OKF root."),
+) -> None:
+    """Register a named corpus at an existing filesystem root."""
+
+    config_path = load_settings().corpus_config
+    try:
+        corpus = CorpusRegistry.register(config_path, name, root)
+    except CorpusConfigError as exc:
+        typer.echo(f"corpus configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"registered corpus {corpus.name!r} at {corpus.root}")
+    typer.echo(f"next: oneo validate --corpus {corpus.name} --strict")
+    typer.echo(f"next: oneo index --corpus {corpus.name} --rebuild")
+    typer.echo(f'next: oneo query "<question>" --corpus {corpus.name}')
 
 
 @corpus_app.command("info")
@@ -73,8 +108,7 @@ def health() -> None:
     status = coordinator.health()
     if status.connected:
         typer.echo(
-            f"connected to database {status.database!r} "
-            f"(server: {status.server_agent})"
+            f"connected to database {status.database!r} (server: {status.server_agent})"
         )
         raise typer.Exit(code=0)
 
@@ -88,7 +122,9 @@ def files(
         None, help="Directory to scan. Defaults to the selected corpus's root."
     ),
     corpus: str = typer.Option(
-        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+        None,
+        "--corpus",
+        help="Corpus to select. Defaults to the configured default corpus.",
     ),
 ) -> None:
     """List supported OKF source files under INPUT_PATH."""
@@ -113,7 +149,9 @@ def parse(
         ..., "--output", help="Path to write the normalized corpus JSON."
     ),
     corpus: str = typer.Option(
-        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+        None,
+        "--corpus",
+        help="Corpus to select. Defaults to the configured default corpus.",
     ),
 ) -> None:
     """Parse OKF documents under INPUT_PATH into a normalized corpus JSON file."""
@@ -141,7 +179,9 @@ def validate(
         False, "--strict", help="Fail on unresolved links/anchors and duplicate IDs."
     ),
     corpus: str = typer.Option(
-        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+        None,
+        "--corpus",
+        help="Corpus to select. Defaults to the configured default corpus.",
     ),
 ) -> None:
     """Validate the OKF corpus under INPUT_PATH without writing to Neo4j."""
@@ -189,7 +229,9 @@ def index(
         help="Reset the owned graph index before writing.",
     ),
     corpus: str = typer.Option(
-        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+        None,
+        "--corpus",
+        help="Corpus to select. Defaults to the configured default corpus.",
     ),
 ) -> None:
     """Index the OKF corpus under INPUT_PATH into Neo4j."""
@@ -214,10 +256,14 @@ def index(
 
 @app.command("vector-search")
 def vector_search(
-    query: str = typer.Argument(..., help="Natural-language query to embed and search."),
+    query: str = typer.Argument(
+        ..., help="Natural-language query to embed and search."
+    ),
     top_k: int = typer.Option(5, "--top-k", help="Number of results to return."),
     corpus: str = typer.Option(
-        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+        None,
+        "--corpus",
+        help="Corpus to select. Defaults to the configured default corpus.",
     ),
 ) -> None:
     """Run a raw vector-similarity search over indexed OKF sections."""
@@ -251,7 +297,9 @@ def retrieve(
         False, "--explain", help="Print per-hit ranking diagnostics."
     ),
     corpus: str = typer.Option(
-        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+        None,
+        "--corpus",
+        help="Corpus to select. Defaults to the configured default corpus.",
     ),
 ) -> None:
     """Run hybrid retrieval (vector + full-text with rank fusion), optionally
@@ -309,15 +357,21 @@ def query(
         "--mode",
         help="Retrieval mode: 'hybrid' or 'graph-hybrid' (adds one-hop graph expansion).",
     ),
-    top_k: int = typer.Option(5, "--top-k", help="Number of fused seed hits to retrieve."),
+    top_k: int = typer.Option(
+        5, "--top-k", help="Number of fused seed hits to retrieve."
+    ),
     show_sources: bool = typer.Option(
         False, "--show-sources", help="Print every retrieved source used as evidence."
     ),
     show_paths: bool = typer.Option(
-        False, "--show-paths", help="Print graph paths for cited graph-expanded sections."
+        False,
+        "--show-paths",
+        help="Print graph paths for cited graph-expanded sections.",
     ),
     corpus: str = typer.Option(
-        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+        None,
+        "--corpus",
+        help="Corpus to select. Defaults to the configured default corpus.",
     ),
 ) -> None:
     """Generate a grounded answer with citations from hybrid (optionally
@@ -367,7 +421,9 @@ def query(
 @app.command()
 def reset(
     corpus: str = typer.Option(
-        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+        None,
+        "--corpus",
+        help="Corpus to select. Defaults to the configured default corpus.",
     ),
 ) -> None:
     """Delete only the Neo4j data owned by this index."""
@@ -387,7 +443,9 @@ def verify(
         None, help="Directory to verify. Defaults to the selected corpus's root."
     ),
     corpus: str = typer.Option(
-        None, "--corpus", help="Corpus to select. Defaults to the configured default corpus."
+        None,
+        "--corpus",
+        help="Corpus to select. Defaults to the configured default corpus.",
     ),
 ) -> None:
     """Compare the filesystem corpus against the graph index."""
@@ -402,8 +460,7 @@ def verify(
     for issue in result.issues:
         typer.echo(f"[issue] {issue}")
     typer.echo(
-        f"documents={result.documents} sections={result.sections} "
-        f"links={result.links}"
+        f"documents={result.documents} sections={result.sections} links={result.links}"
     )
     if not result.ok:
         raise typer.Exit(code=1)

@@ -12,6 +12,9 @@ indexing state, or per-corpus runtime objects -- see
 from __future__ import annotations
 
 import re
+import json
+import os
+import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,17 +35,62 @@ class Corpus:
 
 
 class CorpusRegistry:
-    """Read-only lookup of configured corpuses.
-
-    Exposes only :meth:`names`, :meth:`get`, and :meth:`default_name`.
-    """
+    """Lookup and explicit maintenance of configured corpuses."""
 
     def __init__(self, corpuses: dict[str, Corpus], default_name: str | None) -> None:
         self._corpuses = corpuses
         self._default_name = default_name
 
     @classmethod
-    def load(cls, config_path: str, default_name: str | None = None) -> "CorpusRegistry":
+    def initialize(cls, config_path: str) -> None:
+        """Create an empty registry without overwriting an existing file."""
+
+        cls._create_file(Path(config_path), "[corpuses]\n")
+
+    @classmethod
+    def register(cls, config_path: str, name: str, root: str) -> Corpus:
+        """Atomically add a corpus with a canonical existing directory root."""
+
+        cls._validate_name(name)
+        canonical_root = cls._canonical_root(root)
+        path = Path(config_path)
+        if not path.is_file():
+            raise CorpusConfigError(
+                f"corpus configuration file not found: {config_path!r}. "
+                "Run 'oneo init' before adding a corpus."
+            )
+        content = path.read_text()
+        try:
+            raw = tomllib.loads(content)
+        except tomllib.TOMLDecodeError as exc:
+            raise CorpusConfigError(
+                f"failed to parse corpus configuration {config_path!r}: {exc}"
+            ) from exc
+        raw_corpuses = raw.get("corpuses")
+        if not isinstance(raw_corpuses, dict):
+            raise CorpusConfigError(
+                f"corpus configuration {config_path!r} defines no corpuses. "
+                "Run 'oneo init' before adding a corpus."
+            )
+        if raw_corpuses:
+            registry = cls.load(config_path)
+            if name in registry._corpuses:
+                raise CorpusConfigError(f"duplicate corpus name: {name!r}")
+
+        separator = "" if content.endswith("\n\n") else "\n"
+        if not content.endswith("\n"):
+            separator = "\n\n"
+        updated = (
+            f"{content}{separator}[corpuses.{name}]\n"
+            f"root = {json.dumps(canonical_root)}\n"
+        )
+        cls._replace_file(path, updated)
+        return Corpus(name=name, root=canonical_root)
+
+    @classmethod
+    def load(
+        cls, config_path: str, default_name: str | None = None
+    ) -> "CorpusRegistry":
         """Load and validate the corpus registry from ``config_path``.
 
         Args:
@@ -98,6 +146,67 @@ class CorpusRegistry:
             corpuses[name] = Corpus(name=name, root=root)
 
         return cls(corpuses, default_name)
+
+    @staticmethod
+    def _validate_name(name: str) -> None:
+        if not _NAME_PATTERN.match(name):
+            raise CorpusConfigError(
+                f"invalid corpus name {name!r}: names must match "
+                f"{_NAME_PATTERN.pattern!r}"
+            )
+
+    @staticmethod
+    def _canonical_root(root: str) -> str:
+        path = Path(root).expanduser().resolve()
+        if not path.is_dir():
+            raise CorpusConfigError(
+                f"corpus root {root!r} is not an existing directory"
+            )
+        return str(path)
+
+    @staticmethod
+    def _create_file(path: Path, content: str) -> None:
+        """Atomically publish a new file while refusing to replace one."""
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() or path.is_symlink():
+            raise CorpusConfigError(
+                f"corpus configuration file already exists: {str(path)!r}; "
+                "refusing to overwrite it"
+            )
+        descriptor, temporary_path = tempfile.mkstemp(
+            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", text=True
+        )
+        try:
+            with os.fdopen(descriptor, "w") as temporary_file:
+                temporary_file.write(content)
+                temporary_file.flush()
+                os.fsync(temporary_file.fileno())
+            try:
+                os.link(temporary_path, path)
+            except FileExistsError as exc:
+                raise CorpusConfigError(
+                    f"corpus configuration file already exists: {str(path)!r}; "
+                    "refusing to overwrite it"
+                ) from exc
+        finally:
+            Path(temporary_path).unlink(missing_ok=True)
+
+    @staticmethod
+    def _replace_file(path: Path, content: str) -> None:
+        """Atomically replace ``path`` with fully written registry content."""
+
+        descriptor, temporary_path = tempfile.mkstemp(
+            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", text=True
+        )
+        try:
+            with os.fdopen(descriptor, "w") as temporary_file:
+                temporary_file.write(content)
+                temporary_file.flush()
+                os.fsync(temporary_file.fileno())
+            os.replace(temporary_path, path)
+        finally:
+            Path(temporary_path).unlink(missing_ok=True)
 
     def names(self) -> list[str]:
         """Return every configured corpus name, sorted for determinism."""
