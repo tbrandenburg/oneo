@@ -4,7 +4,7 @@ __pycache__/
 .pytest_cache/
 .coverage
 .env
-corpuses.toml
+/corpuses.toml
 build/
 .ghar/
 .flowsh/

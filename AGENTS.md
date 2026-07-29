@@ -226,6 +226,7 @@ into one small, understandable pipeline.
 
 ## Lessons Learned
 
+- 2026-07-29: When a shipped configuration file moves below a directory, anchor an ignore rule intended only for the root (for example, `/corpuses.toml`) so the committed nested configuration remains trackable.
 - Keep `factory_v2.sh` in repo gitignored
 - Neo4j node/relationship properties cannot hold nested maps: `OkfDocument.metadata`
   (a `Mapping[str, object]`) must be serialized (e.g. `json.dumps(..., sort_keys=True)`)

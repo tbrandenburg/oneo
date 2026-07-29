@@ -9,6 +9,8 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+export ONEO_CORPUS_CONFIG="examples/corpuses.toml"
+
 NEO4J_URI="bolt://localhost:7687"
 READY_TIMEOUT_SECONDS=90
 LOG_DIR="logs/demo"
@@ -96,7 +98,7 @@ log "== Registered corpuses =="
 run_step "$LOG_DIR/00-corpus-list.log" uv run oneo corpus list || fail "corpus registry could not be loaded"
 
 for corpus in billing engineering; do
-    root="./corpuses/${corpus}"
+    root="./examples/corpuses/${corpus}"
 
     log "== [$corpus] Filesystem security =="
     run_step "$LOG_DIR/${corpus}-files.log" uv run oneo files --corpus "$corpus" >/dev/null || fail "[$corpus] filesystem security check failed"
@@ -175,7 +177,7 @@ cross_citations=$(echo "$cross_query_output" | grep "^\[citation " || true)
 if [ -n "$cross_citations" ]; then
     while IFS= read -r line; do
         source_path=$(echo "$line" | grep -oP 'source_path=\K\S+')
-        [ ! -f "./corpuses/engineering/$source_path" ] || fail "billing query surfaced an engineering-only source_path: $source_path"
+        [ ! -f "./examples/corpuses/engineering/$source_path" ] || fail "billing query surfaced an engineering-only source_path: $source_path"
     done <<< "$cross_citations"
 fi
 log "Corpus isolation: PASS"
